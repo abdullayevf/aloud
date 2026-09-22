@@ -128,6 +128,16 @@ describe("RelayClient", () => {
     expect(FakeSocket.last.readyState).toBe(3);
     expect(c.sessionId).toBe("sess_1");
   });
+
+  it("closeAbandoned closes the socket directly, without the session.end handshake", () => {
+    const { c } = client();
+    void c.connect();
+    FakeSocket.last.onopen?.();
+    FakeSocket.last.sent.length = 0;
+    c.closeAbandoned();
+    expect(FakeSocket.last.readyState).toBe(3);
+    expect(FakeSocket.last.sent).toEqual([]);
+  });
 });
 
 function recoveryHandlers() {
@@ -272,5 +282,100 @@ describe("connectWithRecovery", () => {
     expect(fetchCredentials).toHaveBeenCalledTimes(1);
     expect(handlers.onError).toHaveBeenCalledTimes(1);
     expect(handlers.onError).toHaveBeenCalledWith("invalid_value: bad request");
+  });
+
+  it("forwards post-connect errors instead of swallowing them", async () => {
+    const handlers = recoveryHandlers();
+    const fetchCredentials = vi.fn(async (_recreate: boolean) => ({
+      token: "tok1",
+      agentId: "agent-1",
+    }));
+
+    const promise = connectWithRecovery(fetchCredentials, handlers, fakePlayer(), {
+      SocketImpl: FakeSocket as never,
+    });
+
+    await waitFor(() => Boolean(FakeSocket.last));
+    FakeSocket.last.onopen?.();
+    FakeSocket.last.emit({ type: "session.ready", session_id: "sess_1" });
+    await promise;
+
+    expect(handlers.onError).not.toHaveBeenCalled();
+
+    // A later, post-connect error on the SAME live socket must now reach the
+    // caller's real onError. Before the fix it was permanently swallowed,
+    // because the wrapped handler's `settled` flag stayed true forever once
+    // the attempt had resolved.
+    FakeSocket.last.emit({ type: "session.error", code: "some_later_error", message: "oops" });
+
+    expect(handlers.onError).toHaveBeenCalledTimes(1);
+    expect(handlers.onError).toHaveBeenCalledWith("some_later_error: oops");
+  });
+
+  it("closes the abandoned socket from a retried attempt", async () => {
+    const handlers = recoveryHandlers();
+    const fetchCredentials = vi.fn(async (recreate: boolean) =>
+      recreate ? { token: "tok2", agentId: "agent-2" } : { token: "tok1", agentId: "agent-1" },
+    );
+
+    const promise = connectWithRecovery(fetchCredentials, handlers, fakePlayer(), {
+      SocketImpl: FakeSocket as never,
+    });
+    promise.catch(() => {});
+
+    await waitFor(() => Boolean(FakeSocket.last));
+    const firstSocket = FakeSocket.last;
+    firstSocket.onopen?.();
+    expect(firstSocket.readyState).toBe(1);
+    firstSocket.emit({ type: "session.error", code: "agent_not_found", message: "no such agent" });
+
+    // The abandoned attempt's socket must be closed, not left open (and
+    // billing) while the retry proceeds. closeAbandoned() runs inside
+    // connectWithRecovery's catch, one microtask after the RetrySignal
+    // rejection, hence the poll rather than a bare synchronous assertion.
+    await waitFor(() => firstSocket.readyState === 3);
+    expect(firstSocket.readyState).toBe(3);
+
+    await waitFor(() => FakeSocket.last !== firstSocket);
+    const secondSocket = FakeSocket.last;
+    secondSocket.onopen?.();
+    secondSocket.emit({ type: "session.ready", session_id: "sess_2" });
+    const client = await promise;
+    expect(client.sessionId).toBe("sess_2");
+  });
+
+  it("times out an attempt that never resolves, closes its socket, and does not retry", async () => {
+    vi.useFakeTimers();
+    try {
+      const handlers = recoveryHandlers();
+      const fetchCredentials = vi.fn(async (_recreate: boolean) => ({
+        token: "tok1",
+        agentId: "agent-1",
+      }));
+
+      const promise = connectWithRecovery(fetchCredentials, handlers, fakePlayer(), {
+        SocketImpl: FakeSocket as never,
+      });
+      promise.catch(() => {});
+
+      // Let fetchCredentials's own promise and attemptConnect's synchronous
+      // setup run, but never call onopen/emit — the socket just never fires
+      // anything, simulating a silent pre-handshake stall (CLAUDE.md: "a
+      // pre-handshake failure surfaces only as close code 1006 with nothing
+      // readable" — here it doesn't even get that).
+      await vi.advanceTimersByTimeAsync(0);
+      const socket = FakeSocket.last;
+      expect(socket).toBeTruthy();
+
+      await vi.advanceTimersByTimeAsync(10_000);
+
+      await expect(promise).rejects.toThrow("Connection attempt timed out.");
+      expect(handlers.onError).toHaveBeenCalledTimes(1);
+      expect(handlers.onError).toHaveBeenCalledWith("Connection attempt timed out.");
+      expect(fetchCredentials).toHaveBeenCalledTimes(1);
+      expect(socket.readyState).toBe(3);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

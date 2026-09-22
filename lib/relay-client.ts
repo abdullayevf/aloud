@@ -124,24 +124,36 @@ export class RelayClient {
     this.player.close();
     this.socket.close();
   }
+
+  /** Closes the socket directly, without the session.end handshake — for an
+   * attempt abandoned before any session became ready (e.g. a recoverable
+   * agent_not_found, or a connection attempt that timed out). There is no
+   * live session to end in that case. */
+  closeAbandoned(): void {
+    this.socket?.close();
+  }
 }
 
-/** Fetches fresh connection credentials. `recreate: true` forces a new stored
- * agent rather than reusing one that might be invisible on this network. */
 export interface CredentialsFetcher {
   (recreate: boolean): Promise<Credentials>;
 }
 
 export interface RecoveryOptions {
-  /** Total connection attempts, including the first. Bounded so a dead agent
-   * id cannot loop forever. */
   maxAttempts?: number;
   SocketImpl?: typeof WebSocket;
 }
 
 const AGENT_NOT_FOUND = /^agent_not_found:/i;
+/** Matches the 10s read-timeout budget documented elsewhere in this codebase
+ * for this API: if a connection attempt hasn't resolved (ready or errored)
+ * in this long, treat it as failed rather than hang the UI forever. */
+const CONNECT_TIMEOUT_MS = 10_000;
 
-class RetrySignal extends Error {}
+class RetrySignal extends Error {
+  constructor(public readonly client: RelayClient) {
+    super("agent_not_found: retrying with a fresh agent");
+  }
+}
 
 async function attemptConnect(
   credentials: Credentials,
@@ -152,33 +164,58 @@ async function attemptConnect(
 ): Promise<RelayClient> {
   return new Promise((resolve, reject) => {
     let settled = false;
+    // `settle` closes over `timer`, declared with `const` further down (once,
+    // at its only assignment, right where it's created) rather than up here
+    // with `let` — safe because `settle` is never invoked until after that
+    // declaration has run (it's only called from callbacks fired later, by
+    // socket events or the timeout itself), so `timer` is never read during
+    // its temporal dead zone.
+    const settle = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      fn();
+    };
+
     const client = new RelayClient(
       credentials,
       {
         ...handlers,
         onStatus: (status) => {
           handlers.onStatus(status);
-          if (!settled && status === "connected") {
-            settled = true;
-            resolve(client);
-          }
+          if (status === "connected") settle(() => resolve(client));
         },
         onError: (message) => {
-          if (settled) return;
-          settled = true;
-          if (AGENT_NOT_FOUND.test(message) && canRetryOnAgentNotFound) {
-            // Transient: the caller never sees this one. A visible error here
-            // would read as "the call failed" when a silent retry is coming.
-            reject(new RetrySignal());
+          // Once this attempt has already settled (connected, or already
+          // decided to retry/fail), every later error is a live-call error,
+          // not a connection-attempt outcome — forward it, never swallow it.
+          if (settled) {
+            handlers.onError(message);
             return;
           }
-          handlers.onError(message);
-          reject(new Error(message));
+          settle(() => {
+            if (AGENT_NOT_FOUND.test(message) && canRetryOnAgentNotFound) {
+              reject(new RetrySignal(client));
+            } else {
+              handlers.onError(message);
+              reject(new Error(message));
+            }
+          });
         },
       },
       player,
       SocketImpl,
     );
+
+    const timer: ReturnType<typeof setTimeout> = setTimeout(() => {
+      settle(() => {
+        client.closeAbandoned();
+        const message = "Connection attempt timed out.";
+        handlers.onError(message);
+        reject(new Error(message));
+      });
+    }, CONNECT_TIMEOUT_MS);
+
     client.connect();
   });
 }
@@ -191,9 +228,13 @@ async function attemptConnect(
  * On that specific error, re-fetch credentials with recreate:true (tokens
  * are single-use regardless, so a fresh one is required either way) and
  * reconnect, bounded by maxAttempts rather than looping forever on a dead
- * id. Any other error (a bad network, a non-recoverable session.error, a
- * 403/429 thrown by fetchCredentials) surfaces immediately through the
- * caller's onError, with no retry, and rejects the returned promise.
+ * id, closing each abandoned attempt's socket so it stops billing. Any
+ * other error — a bad network, a non-recoverable session.error, an attempt
+ * timeout, or fetchCredentials itself throwing (e.g. a 403/429 from
+ * /api/call) — propagates immediately with no retry; for a session.error
+ * or a timeout, handlers.onError has already been called before the
+ * rejection, but fetchCredentials throwing is a bare rejection with no
+ * onError call, since there's no RelayClient/session involved yet.
  */
 export async function connectWithRecovery(
   fetchCredentials: CredentialsFetcher,
@@ -206,7 +247,10 @@ export async function connectWithRecovery(
     try {
       return await attemptConnect(credentials, handlers, player, SocketImpl, attempt < maxAttempts);
     } catch (error) {
-      if (error instanceof RetrySignal) continue;
+      if (error instanceof RetrySignal) {
+        error.client.closeAbandoned(); // don't leave a dead attempt's socket billing
+        continue;
+      }
       throw error;
     }
   }
