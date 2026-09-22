@@ -15,11 +15,12 @@ async function ensureAgent(apiKey: string, origin: string, secret: string): Prom
     const existing = agents.find((a) => a.name === AGENT_NAME);
     if (existing) {
       // PUT so a redeployed origin or a rotated secret takes effect.
-      await fetch(`${AGENTS_BASE}/v1/agents/${existing.id}`, {
+      const updated = await fetch(`${AGENTS_BASE}/v1/agents/${existing.id}`, {
         method: "PUT",
         headers,
         body: JSON.stringify(buildAgentPayload(origin, secret)),
       });
+      if (!updated.ok) throw new Error(`agent update failed (${updated.status}): ${await updated.text()}`);
       return existing.id;
     }
   }
