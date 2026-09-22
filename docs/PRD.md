@@ -33,7 +33,7 @@ Ranked by how directly each maps to a judging axis (Application of Technology / 
 1. **Multilingual intake conversation** — native code-switching (no forced `language_code`), Spanish-primary for the demo script.
 2. **Live structured extraction** — name, DOB, reason for visit, insurance, callback number, pulled out via tool-calling as the call progresses and rendered as a visible "intake card" that fills in real-time (this is the Dealty-pattern: AssemblyAI's own 2024 grand winner won on exactly this "talk → structured record" mechanic).
 3. **Urgency triage flag** — simple 3-tier classification (routine / same-day / urgent) surfaced as a visible badge, driven by the intake conversation.
-4. **Speaker diarization** — handles the common case of a patient calling with a family member/informal interpreter on the line.
+4. **Companion-on-the-line demo beat** — scripted, not live diarization (the Voice Agent API's `session.update` schema has no `speaker_labels` field — confirmed against official docs, see design spec §2). Shows the agent handling a second voice interjecting gracefully, without claiming real per-speaker labeling.
 5. **PHI-aware framing** — redaction behavior and explicit "processed under AssemblyAI's HIPAA business-associate terms" messaging in the pitch. This is the originality wedge: zero healthcare entries in the current hackathon leaderboard top 10.
 6. **ROI overlay in the demo UI** — a small live counter showing $ saved this call (missed-call cost avoided + interpreter-cost avoided), computed from the researched stats. Makes Business Value tangible inside the 2-minute demo window instead of living only in the pitch deck.
 
@@ -80,5 +80,7 @@ Mapped to the hackathon's stated judging axes:
 
 1. **Team size/roles** — assumed solo or small team; tasks in `docs/TASKS.md` are written to be sequential and independently assignable if teammates join.
 2. **Demo shape** — assumed browser-mic simulation of a clinic phone line, not real Twilio telephony. Flag if you want to try real inbound calling instead (adds real infra risk with 8 days left).
-3. **Working name** — "Intake Copilot" is a placeholder, not chosen.
+3. **Working name** — see candidates in `docs/research/naming.md`, not chosen yet.
 4. **Target state for the narrative** — defaulting to Massachusetts or New York (>30% LEP) unless you want a different state (e.g., one with personal/team relevance).
+
+Resolved: diarization (previously open) — confirmed unsupported by the Voice Agent API's own schema, descoped to a scripted demo beat. See design spec §2.

@@ -80,7 +80,9 @@ Voice Agent API `session.update` payload (sketch, values to refine during build)
 
 Open item to verify against live docs before build (per the integration instructions' Operating Rule 12 — parameters move between beta/GA): confirm `lola` (Spanish-native voice) is still a valid voice ID via `GET /v1/voices`, and confirm current tool-calling event shape (`tool.call` → accumulate → `tool.result` after `reply.done`, discard on `status: "interrupted"`).
 
-**Diarization note:** the Voice Agent API's own turn-taking is single-caller-oriented; the PRD's "speaker on the line with a companion/interpreter" feature likely needs the realtime STT diarization behavior (`speaker_labels`) layered in, or is descoped to a scripted double-voice demo moment rather than live diarization through the managed agent pipeline. **Needs a docs check during build** — flag if the Voice Agent API doesn't expose per-speaker labels the way plain realtime STT does.
+**Diarization — RESOLVED (checked 2026-09-22):** confirmed against the official [session configuration reference](https://www.assemblyai.com/docs/voice-agents/voice-agent-api/session-configuration) — the Voice Agent API's `session.update` schema has **no `speaker_labels` / diarization field**. That parameter only exists on raw realtime STT (Section 9 of the integration instructions), which is a different WebSocket entirely. Getting real diarization would mean running a second, parallel realtime-STT connection alongside the managed agent just to label the companion speaker — real added complexity for a demo-day nice-to-have.
+
+**Decision:** descope live diarization. Feature 4 in the PRD becomes a *scripted* demo beat instead (a second voice/actor speaks a line, the agent visibly handles the interjection gracefully) rather than a system that actually labels speakers. PRD §4 and §8 updated to reflect this — not a live technical claim anymore.
 
 ## 3. Data flow
 
@@ -109,4 +111,4 @@ Given the 8-day window, this is demo-correctness testing, not a full test suite:
 
 ## 6. Open questions carried from PRD
 
-See `docs/PRD.md` §8 — team size, demo shape confirmation, working name, target state. Also new from this pass: whether diarization is achievable inside the managed Voice Agent API or needs descoping to a scripted moment (§2 above).
+See `docs/PRD.md` §8 — team size, demo shape confirmation, working name, target state. Diarization (previously open) is now resolved — see §2 above.
