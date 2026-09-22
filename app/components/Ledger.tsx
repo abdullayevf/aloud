@@ -8,6 +8,21 @@ const LABEL: Record<Utterance["status"], string> = {
   interrupted: "interrupted",
 };
 
+/**
+ * Assistant-mode replies are deliberately NOT verbatim — the user delegated
+ * to the assistant, so a strict-equality "mismatch" here would mislabel an
+ * intentional paraphrase as an alteration. Only verbatim mode's mismatch
+ * means what the word implies; keep the flagged/amber treatment scoped to it.
+ */
+function labelFor(u: Utterance): string {
+  if (u.mode === "assistant" && u.status === "mismatch") return "assistant spoke";
+  return LABEL[u.status];
+}
+
+function isFlagged(u: Utterance): boolean {
+  return u.mode === "verbatim" && u.status === "mismatch";
+}
+
 export function Ledger({ utterances }: { utterances: Utterance[] }) {
   const { matched, total } = verbatimCount(utterances);
 
@@ -22,8 +37,8 @@ export function Ledger({ utterances }: { utterances: Utterance[] }) {
           <li key={u.id} className="rounded-lg border border-slate-700 p-3 text-sm">
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-slate-400">you typed</span>
-              <span className={u.status === "mismatch" ? "text-amber-400" : "text-slate-400"}>
-                {LABEL[u.status]}
+              <span className={isFlagged(u) ? "text-amber-400" : "text-slate-400"}>
+                {labelFor(u)}
                 {u.mode === "assistant" ? " · assistant" : ""}
               </span>
             </div>
@@ -31,7 +46,7 @@ export function Ledger({ utterances }: { utterances: Utterance[] }) {
             {u.spokenText !== null && u.status !== "match" && (
               <>
                 <span className="text-slate-400">actually spoken</span>
-                <p className="text-amber-200">{u.spokenText}</p>
+                <p className={isFlagged(u) ? "text-amber-200" : "text-slate-300"}>{u.spokenText}</p>
               </>
             )}
           </li>

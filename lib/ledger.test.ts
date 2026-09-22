@@ -53,6 +53,11 @@ describe("ledgerReducer", () => {
     expect(run(spoken("Hello. You're on a relay call."))).toEqual([]);
   });
 
+  it("counts an interrupted verbatim utterance in the total but not the match count", () => {
+    const state = run(typed("1", "the whole sentence"), spoken("the whole", true));
+    expect(verbatimCount(state)).toEqual({ matched: 0, total: 1 });
+  });
+
   it("counts only verbatim utterances", () => {
     const state = run(
       typed("1", "hello"),

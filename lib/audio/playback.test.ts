@@ -5,7 +5,7 @@ import { encodeInt16ToBase64 } from "./pcm";
 function fakeContext() {
   const started: number[] = [];
   const stopped: unknown[] = [];
-  const ctx: any = {
+  const ctx = {
     currentTime: 0,
     destination: {},
     createBuffer: (_ch: number, length: number, rate: number) => ({
@@ -14,16 +14,18 @@ function fakeContext() {
       getChannelData: () => new Float32Array(length),
     }),
     createBufferSource: () => {
-      const node: any = {
+      const node = {
         buffer: null,
         connect: vi.fn(),
         start: (when: number) => started.push(when),
         stop: vi.fn(() => stopped.push(node)),
         onended: null,
-      };
+      } as unknown as AudioBufferSourceNode;
       return node;
     },
-  };
+    // AudioContext declares currentTime readonly; these tests advance the
+    // clock by hand, so the fake exposes it as writable.
+  } as unknown as Omit<AudioContext, "currentTime"> & { currentTime: number };
   return { ctx, started, stopped };
 }
 

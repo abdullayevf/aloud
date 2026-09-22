@@ -32,4 +32,25 @@ describe("Ledger", () => {
     expect(screen.getByText(/1 of 1 relayed verbatim/i)).toBeDefined();
     expect(screen.getByText(/assistant/i)).toBeDefined();
   });
+
+  it("calls an assistant-mode mismatch a paraphrase, not an alteration, and does not flag it", () => {
+    render(
+      <Ledger
+        utterances={[
+          u({
+            mode: "assistant",
+            status: "mismatch",
+            typedText: "press 2",
+            spokenText: "Pressing two now.",
+          }),
+        ]}
+      />,
+    );
+    const label = screen.getByText(/assistant spoke/i);
+    expect(label).toBeDefined();
+    expect(screen.queryByText(/altered/i)).toBeNull();
+    // Amber is the "we altered your words" treatment — it must not appear on a
+    // paraphrase the user explicitly delegated.
+    expect(label.className).not.toContain("text-amber-400");
+  });
 });

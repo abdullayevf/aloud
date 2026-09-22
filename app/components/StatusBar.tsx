@@ -3,10 +3,12 @@
 export function StatusBar({
   status,
   deletion,
+  notice,
   error,
 }: {
   status: string;
   deletion: string | null;
+  notice: string | null;
   error: string | null;
 }) {
   return (
@@ -14,6 +16,7 @@ export function StatusBar({
       <span className="text-xl font-semibold text-slate-50">Aloud</span>
       <span className="text-sm text-slate-400">{status}</span>
       {deletion && <span className="text-sm text-emerald-400">{deletion}</span>}
+      {notice && <span className="text-sm text-amber-300">{notice}</span>}
       {error && <span className="text-sm text-rose-400">{error}</span>}
     </header>
   );

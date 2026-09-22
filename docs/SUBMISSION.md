@@ -20,8 +20,8 @@ That guidance article was fetched directly (`curl`, HTTP 200, 111,571 bytes) and
 | Long Description | **minimum 100 words** | same |
 | Cover Image | **recommended 16:9 ratio** | same |
 | Video Presentation | **under 300MB and within 5 minutes duration** — submitted as a *link* to the video, not a direct file upload, per the article's wording ("Provide a link to your video presentation") | same |
-| Main Tracks / Technologies | selected from the hackathon's own listed categories / `lablab.ai/tech` | same |
-| GitHub Repository, Demo Application Platform, Demo Application URL | required, no stated format limit | same |
+| Main Tracks / Technologies | selected from the hackathon's own listed categories / `lablab.ai/tech` | inferred from the guided walkthrough, not independently grepped |
+| GitHub Repository, Demo Application Platform, Demo Application URL | required, no stated format limit | inferred from the guided walkthrough, not independently grepped |
 
 These numbers match what PRD §6 already carried forward as "general lablab platform conventions" — this pass confirms they are also what the platform's own guidance article states today, for this account of the flow. It is **not** a login into the actual per-hackathon submission form (that needs a human with an enrolled account), so treat it as strong secondary confirmation, not a screenshot of the form itself.
 

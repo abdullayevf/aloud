@@ -14,9 +14,12 @@ interface Credentials {
   agentId: string;
 }
 
+type ServerMessage = { type: string } & Record<string, unknown>;
+
 export class RelayClient {
   private socket?: WebSocket;
   private ended?: () => void;
+  private greetingConsumed = false;
   sessionId: string | null = null;
 
   constructor(
@@ -51,10 +54,10 @@ export class RelayClient {
     this.socket?.send(JSON.stringify(message));
   }
 
-  private handle(message: any): void {
+  private handle(message: ServerMessage): void {
     switch (message.type) {
       case "session.ready":
-        this.sessionId = message.session_id;
+        this.sessionId = message.session_id as string;
         this.handlers.onStatus("connected");
         break;
       case "input.speech.started":
@@ -63,17 +66,30 @@ export class RelayClient {
         break;
       case "transcript.user.delta":
         // text is the FULL transcript so far for this item. Replace it.
-        this.handlers.onCaption(message.text);
+        this.handlers.onCaption(message.text as string);
         break;
       case "transcript.user":
-        this.handlers.onCaptionFinal(message.text);
+        this.handlers.onCaptionFinal(message.text as string);
         break;
       case "reply.audio":
         // `data`, not `audio`. The field names are asymmetric.
-        this.player.enqueue(message.data);
+        this.player.enqueue(message.data as string);
         break;
       case "transcript.agent":
-        this.handlers.onSpoken(message.text, Boolean(message.interrupted));
+        // The configured `greeting` is spoken automatically at session.ready,
+        // entirely outside any reply.create the client sent — its
+        // transcript.agent is always the FIRST one of the session, and it can
+        // arrive after the user has already typed something (the composer is
+        // enabled as soon as the mic starts, well before the ~10s greeting
+        // finishes). A real reply's receipt can only exist after a say() call,
+        // which is always later than the greeting's. Swallow the first one
+        // unconditionally rather than let it steal (and permanently offset)
+        // the ledger's FIFO pairing.
+        if (!this.greetingConsumed) {
+          this.greetingConsumed = true;
+          break;
+        }
+        this.handlers.onSpoken(message.text as string, Boolean(message.interrupted));
         break;
       case "reply.done":
         if (message.status === "interrupted") this.player.flush();
@@ -123,14 +139,26 @@ export class RelayClient {
     await done;
     this.player.close();
     this.socket.close();
+    // Idempotent: a second hangUp() would otherwise resend session.end into an
+    // already-closed socket and block for the full 3s fallback waiting for a
+    // session.ended that can never arrive. The guard at the top makes it a
+    // no-op once this is cleared.
+    this.socket = undefined;
   }
 
   /** Closes the socket directly, without the session.end handshake — for an
    * attempt abandoned before any session became ready (e.g. a recoverable
    * agent_not_found, or a connection attempt that timed out). There is no
-   * live session to end in that case. */
+   * live session to end in that case. Handlers are detached first: close()
+   * is asynchronous, and a late event from this abandoned socket must never
+   * reach the handlers that, by the time it fires, may already belong to a
+   * different, successfully-recovered call. */
   closeAbandoned(): void {
-    this.socket?.close();
+    if (!this.socket) return;
+    this.socket.onopen = null;
+    this.socket.onmessage = null;
+    this.socket.onclose = null;
+    this.socket.close();
   }
 }
 

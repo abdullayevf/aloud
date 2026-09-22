@@ -58,9 +58,14 @@ One socket. One provider. No database. On hangup, `DELETE /v1/sessions/{id}`.
 
 ## Status
 
-**Day one — documentation only.** No application code yet. Start with [`docs/superpowers/plans/2026-09-22-aloud-implementation.md`](docs/superpowers/plans/2026-09-22-aloud-implementation.md).
+**Built and deployed.** Tasks 1–13 of the [implementation plan](docs/superpowers/plans/2026-09-22-aloud-implementation.md) are done — browser audio, the verbatim pass-through, the ledger, the relay client, the call screen and the deletion-on-hangup path — and the app is live at `https://aloud-implementation.vercel.app`.
 
-The design rests on five contract questions about AssemblyAI's custom-LLM path that are answered by measurement, not by reading — they are plan Task 5, and they run before any UI is built. Spec [§3.2](docs/superpowers/specs/2026-09-22-aloud-design.md) names each one and its fallback.
+The design rested on five contract questions about AssemblyAI's custom-LLM path that could only be answered by measurement, not by reading. **All five are closed**, measured 2026-09-22/23 against a real deployment; spec [§3.2](docs/superpowers/specs/2026-09-22-aloud-design.md) names each one and the evidence is in [`docs/research/gate-results-2026-09-22.md`](docs/research/gate-results-2026-09-22.md). Re-run them any time with `node scripts/gate-probe.mjs https://<deployment>`.
+
+Two things are outstanding, and neither is something code can finish:
+
+- **The cross-browser matrix is not filled in.** Every cell in [`docs/BROWSER-NOTES.md`](docs/BROWSER-NOTES.md) still reads PENDING. Chrome, Firefox and Safari each need a human with a real browser and a real microphone to walk the six checks; no browser has been manually verified.
+- **The submission video is not recorded.** [`docs/SUBMISSION.md`](docs/SUBMISSION.md) carries the finished script and shot list, plus the submission copy. No video file exists.
 
 ## Docs
 
@@ -70,6 +75,8 @@ The design rests on five contract questions about AssemblyAI's custom-LLM path t
 | [`docs/superpowers/specs/2026-09-22-aloud-design.md`](docs/superpowers/specs/2026-09-22-aloud-design.md) | Architecture, the verbatim pass-through, retention, errors, testing |
 | [`docs/superpowers/plans/2026-09-22-aloud-implementation.md`](docs/superpowers/plans/2026-09-22-aloud-implementation.md) | The build, task by task, with real code |
 | [`docs/TASKS.md`](docs/TASKS.md) | The calendar to 2026-09-30 and the standing risks |
+| [`docs/SUBMISSION.md`](docs/SUBMISSION.md) | Submission copy, sourced format limits, and the video script (not yet recorded) |
+| [`docs/BROWSER-NOTES.md`](docs/BROWSER-NOTES.md) | Cross-browser verification matrix — awaiting a human tester |
 | [`docs/research/pitch-stats.md`](docs/research/pitch-stats.md) | Every number, sourced and dated |
 | [`docs/research/hackathon-strategy.md`](docs/research/hackathon-strategy.md) | How judges score and what the field built |
 | [`docs/assemblyai-integration.md`](docs/assemblyai-integration.md) | Verified AssemblyAI API reference (§10 = Voice Agent API) |

@@ -32,5 +32,8 @@ export async function POST(request: Request): Promise<Response> {
     if (response.status === 404) break;
   }
 
+  // The only endpoint whose failure is directly user-visible (the deletion
+  // banner). Log it, or a demo-day failure is undebuggable after the fact.
+  console.error(`session deletion failed for ${sessionId} after retries, last status ${lastStatus}`);
   return Response.json({ deleted: false, sessionId, status: lastStatus }, { status: 502 });
 }

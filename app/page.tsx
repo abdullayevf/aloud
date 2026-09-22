@@ -13,6 +13,9 @@ import type { RelayMode } from "@/lib/sentinel";
 export default function Page() {
   const [status, setStatus] = useState("not connected");
   const [error, setError] = useState<string | null>(null);
+  // Separate from `error`: a scheduled warning is not a failure, and the two
+  // would otherwise silently overwrite each other in the same slot.
+  const [notice, setNotice] = useState<string | null>(null);
   const [deletion, setDeletion] = useState<string | null>(null);
   const [finals, setFinals] = useState<string[]>([]);
   const [partial, setPartial] = useState("");
@@ -24,6 +27,14 @@ export default function Page() {
   const client = useRef<RelayClient | null>(null);
   const capture = useRef<MicCapture | null>(null);
   const expiryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // hangUp() only closes the player and the socket — without a handle on the
+  // AudioContext itself it leaks one per successful call, and Chrome caps a
+  // document at 6.
+  const audioCtx = useRef<AudioContext | null>(null);
+  // onStatus("disconnected") fires both for an unexpected drop (session_expired
+  // arrives with no warning event at all) and at the end of a deliberate
+  // hangUp(). Only the first of those deserves an error on screen.
+  const intentionalHangup = useRef(false);
 
   const push = useCallback((event: LedgerEvent) => {
     setUtterances((state) => ledgerReducer(state, event));
@@ -31,8 +42,10 @@ export default function Page() {
 
   async function startCall() {
     if (connecting || live) return; // no second connection attempt while one is in flight
+    intentionalHangup.current = false;
     setConnecting(true);
     setError(null);
+    setNotice(null);
 
     let ctx: AudioContext | undefined;
     let player: ReplyPlayer | undefined;
@@ -41,6 +54,7 @@ export default function Page() {
       // NEVER pass sampleRate here. Firefox loses echo cancellation; Safari garbles.
       ctx = new AudioContext();
       await ctx.resume();
+      audioCtx.current = ctx;
       player = new ReplyPlayer(ctx);
 
       const fetchCredentials: CredentialsFetcher = async (recreate) => {
@@ -67,7 +81,17 @@ export default function Page() {
               setPartial("");
             },
             onSpoken: (text, interrupted) => push({ type: "spoken", text, interrupted }),
-            onStatus: setStatus,
+            onStatus: (status) => {
+              setStatus(status);
+              // session_expired closes the socket with no warning event first.
+              // Without this the composer stays enabled and say() sends into a
+              // closed socket — a silent no-op — so every further line the user
+              // types sits at "speaking…" forever with no sign anything is wrong.
+              if (status === "disconnected" && !intentionalHangup.current) {
+                setLive(false);
+                setError("The call ended unexpectedly.");
+              }
+            },
             onError: setError,
           },
           player,
@@ -76,6 +100,7 @@ export default function Page() {
         // Nothing connected — don't leak the context/player this attempt created.
         player.close();
         ctx.close();
+        audioCtx.current = null;
         setError(err instanceof Error ? err.message : "Could not start the call");
         return;
       }
@@ -90,7 +115,7 @@ export default function Page() {
 
         // session_expired arrives as a 1008 close with NO warning event. Run our own timer.
         const warnAt = (600 - 60) * 1000;
-        expiryTimer.current = setTimeout(() => setError("This call ends in 60 seconds."), warnAt);
+        expiryTimer.current = setTimeout(() => setNotice("This call ends in 60 seconds."), warnAt);
       } catch (err) {
         // The socket connected but the mic failed (e.g. permission denied) —
         // don't leave a live, billing session with no way to hang it up, and
@@ -98,6 +123,7 @@ export default function Page() {
         client.current = null;
         await relay.hangUp();
         ctx.close();
+        audioCtx.current = null;
         setError(err instanceof Error ? err.message : "Could not access the microphone");
       }
     } catch (err) {
@@ -106,6 +132,7 @@ export default function Page() {
       // attempted — nothing to hang up, just release whatever was created.
       player?.close();
       ctx?.close();
+      audioCtx.current = null;
       setError(err instanceof Error ? err.message : "Could not start audio for the call");
     } finally {
       // Unconditionally guaranteed, whichever of the paths above ran (or none did).
@@ -114,28 +141,42 @@ export default function Page() {
   }
 
   async function hangUp() {
+    // Before anything else: the socket close at the end of relay.hangUp() will
+    // report "disconnected", and that one is expected, not a failure.
+    intentionalHangup.current = true;
+
     if (expiryTimer.current) {
       clearTimeout(expiryTimer.current);
       expiryTimer.current = null;
     }
+    setNotice(null);
 
     const relay = client.current;
     capture.current?.stop();
     await relay?.hangUp();
+    await audioCtx.current?.close();
+    audioCtx.current = null;
     setLive(false);
 
     if (relay?.sessionId) {
-      const response = await fetch("/api/end", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: relay.sessionId }),
-      });
-      const result = await response.json();
-      setDeletion(
-        result.deleted
-          ? `Recording deleted — ${relay.sessionId} at ${new Date(result.at).toLocaleTimeString()}`
-          : `Could not confirm deletion. Session ${relay.sessionId} may still be retained.`,
-      );
+      // An offline browser, or a platform error with a non-JSON body, throws
+      // here. Falling through to the same honest fallback the deleted:false
+      // case uses beats ending the call with no deletion statement at all.
+      try {
+        const response = await fetch("/api/end", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ sessionId: relay.sessionId }),
+        });
+        const result = await response.json();
+        setDeletion(
+          result.deleted
+            ? `Recording deleted — ${relay.sessionId} at ${new Date(result.at).toLocaleTimeString()}`
+            : `Could not confirm deletion. Session ${relay.sessionId} may still be retained.`,
+        );
+      } catch {
+        setDeletion(`Could not confirm deletion. Session ${relay.sessionId} may still be retained.`);
+      }
     }
   }
 
@@ -151,7 +192,7 @@ export default function Page() {
 
   return (
     <main className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
-      <StatusBar status={status} deletion={deletion} error={error} />
+      <StatusBar status={status} deletion={deletion} notice={notice} error={error} />
 
       {!live ? (
         <button

@@ -93,8 +93,24 @@ describe("RelayClient", () => {
     const { c, handlers } = client();
     void c.connect();
     FakeSocket.last.onopen?.();
+    // The FIRST transcript.agent of a session is the automatic greeting and is
+    // deliberately swallowed (see the test below), so burn it before asserting
+    // on a real reply's receipt.
+    FakeSocket.last.emit({ type: "transcript.agent", text: "greeting" });
     FakeSocket.last.emit({ type: "transcript.agent", text: "hello", interrupted: true });
     expect(handlers.onSpoken).toHaveBeenCalledWith("hello", true);
+  });
+
+  it("swallows the FIRST transcript.agent of a session (the automatic greeting), forwarding only later ones", () => {
+    const { c, handlers } = client();
+    void c.connect();
+    FakeSocket.last.onopen?.();
+    FakeSocket.last.emit({ type: "session.ready", session_id: "sess_1" });
+    FakeSocket.last.emit({ type: "transcript.agent", text: "Hello, you're on a relay call." });
+    expect(handlers.onSpoken).not.toHaveBeenCalled();
+    FakeSocket.last.emit({ type: "transcript.agent", text: "hello" });
+    expect(handlers.onSpoken).toHaveBeenCalledWith("hello", false);
+    expect(handlers.onSpoken).toHaveBeenCalledTimes(1);
   });
 
   it("drops microphone audio until session.ready, because early audio is discarded", () => {

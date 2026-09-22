@@ -6,8 +6,11 @@ export const dynamic = "force-dynamic";
 
 const AGENTS_BASE = "https://agents.assemblyai.com";
 
-/** Five calls per five minutes per caller. A demo places one call at a time. */
-const CALL_LIMIT = 5;
+/** Five calls per five minutes was too tight once connectWithRecovery could
+ * itself burn up to 3 requests in one retry sequence (agent_not_found
+ * recovery) — two failed user attempts could exhaust it. Raised to give a
+ * full recovery burst headroom across a couple of real attempts. */
+const CALL_LIMIT = 12;
 const CALL_WINDOW_MS = 5 * 60 * 1000;
 
 /**

@@ -16,22 +16,31 @@ export class MicCapture {
       audio: { echoCancellation: true, noiseSuppression: false },
     });
 
-    await this.ctx.audioWorklet.addModule("/pcm-processor.js");
+    try {
+      await this.ctx.audioWorklet.addModule("/pcm-processor.js");
 
-    this.node = new AudioWorkletNode(this.ctx, "pcm-processor", {
-      processorOptions: {
-        inputSampleRate: this.ctx.sampleRate,
-        targetSampleRate: TARGET_SAMPLE_RATE,
-      },
-    });
-    this.node.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
-      onChunk(encodeInt16ToBase64(new Int16Array(event.data)));
-    };
+      this.node = new AudioWorkletNode(this.ctx, "pcm-processor", {
+        processorOptions: {
+          inputSampleRate: this.ctx.sampleRate,
+          targetSampleRate: TARGET_SAMPLE_RATE,
+        },
+      });
+      this.node.port.onmessage = (event: MessageEvent<ArrayBuffer>) => {
+        onChunk(encodeInt16ToBase64(new Int16Array(event.data)));
+      };
 
-    this.source = this.ctx.createMediaStreamSource(this.stream);
-    // Terminate at the worklet. Connecting through to ctx.destination would
-    // play the room back into the room.
-    this.source.connect(this.node);
+      this.source = this.ctx.createMediaStreamSource(this.stream);
+      // Terminate at the worklet. Connecting through to ctx.destination would
+      // play the room back into the room.
+      this.source.connect(this.node);
+    } catch (error) {
+      // getUserMedia already succeeded and lit the mic indicator — if
+      // anything after it fails, the caller never gets a MicCapture instance
+      // back to call stop() on, so this instance must clean up after itself
+      // or the microphone stays hot with no way to turn it off.
+      this.stop();
+      throw error;
+    }
   }
 
   stop(): void {

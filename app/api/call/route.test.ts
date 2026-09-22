@@ -138,7 +138,9 @@ describe("POST /api/call — who is allowed to mint a token", () => {
   });
 
   it("rate-limits a caller minting tokens in a loop, and says when to retry", async () => {
-    for (let i = 0; i < 5; i++) await POST(call("203.0.113.6"));
+    // CALL_LIMIT — raised to 12 so a full connectWithRecovery retry burst
+    // (up to 3 /api/call requests) across a couple of real attempts fits.
+    for (let i = 0; i < 12; i++) await POST(call("203.0.113.6"));
     const response = await POST(call("203.0.113.6"));
     expect(response.status).toBe(429);
     expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(0);
