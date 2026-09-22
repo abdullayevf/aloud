@@ -1,57 +1,88 @@
-# Build plan — 8 days to deadline (2026-09-22 → 2026-09-30)
+# TASKS — the calendar to 2026-09-30
 
-Companion docs: [`PRD.md`](PRD.md), [`superpowers/specs/2026-09-22-clinic-intake-voice-agent-design.md`](superpowers/specs/2026-09-22-clinic-intake-voice-agent-design.md), [`research/pitch-stats.md`](research/pitch-stats.md).
+Deadline: **2026-09-30**. Today is **2026-09-22**. Nine days, one of which is already spent on the pivot.
 
-Submit with a day of margin — don't target the exact deadline. Aim to have a submittable state by end of Day 7 (9/28), use Day 8 as buffer.
+Plan tasks referenced below are from [`superpowers/plans/2026-09-22-aloud-implementation.md`](superpowers/plans/2026-09-22-aloud-implementation.md).
 
-## Day 1 — 9/22 (today): scaffold
-- [ ] `git init`, initial commit with docs
-- [ ] Create AssemblyAI account, get API key (free credits via the hackathon signup link)
-- [ ] Scaffold Next.js app
-- [ ] `/api/token` route — mints AssemblyAI Voice Agent token server-side, key never touches the client
-- [ ] Minimal client page: connect to `wss://agents.assemblyai.com/v1/ws`, send bare `session.update`, confirm `session.ready` comes back
+---
 
-## Day 2 — 9/23: core conversation loop
-- [ ] Mic capture (PCM16 24kHz, base64, `input.audio` events)
-- [ ] Playback of `reply.audio` via Web Audio output buffer (no sleep-scheduling — see design doc §2/§4 gotcha)
-- [ ] System prompt + greeting tuned for the clinic-intake persona
-- [ ] End-to-end: speak, hear a coherent reply, in English first
+## The shape of the week
 
-## Day 3 — 9/24: structured extraction
-- [ ] Wire `record_intake` and `flag_urgency` tool definitions into `session.update`
-- [ ] Handle `tool.call` → resolve → `tool.result` after `reply.done` (discard on `interrupted`)
-- [ ] Build the "intake card" UI component that fills in live from tool calls
-- [ ] Urgency badge component driven by `flag_urgency`
+Two things must happen early or they wreck everything after them:
 
-## Day 4 — 9/25: multilingual demo path
-- [ ] Confirm/select Spanish-capable voice via `GET /v1/voices` (design doc flags `lola` as unverified placeholder)
-- [ ] Script and rehearse the Spanish-language demo call (this is the one path that must be flawless)
-- [ ] Keyterms tuned (clinic name, insurance/seguro, referral/cita, etc.)
-- [ ] Verify native code-switching behavior — no forced `language_code`
+1. **Deploy on day one.** The custom LLM requires a public HTTPS `base_url`; private and loopback hosts are rejected. There is no localhost-only phase of this project.
+2. **Run the validation gates before building UI.** The whole design rests on five contract questions about what AssemblyAI sends our endpoint. They are answerable in an afternoon with an API key. If G1 fails, the server stops being stateless and a task gets added — better to know on day two than day six.
 
-## Day 5 — 9/26: differentiators + resilience
-- [ ] Resolve the diarization open question from the design doc — either get per-speaker labels working, or descope to a scripted double-voice demo beat
-- [ ] ROI counter component (static math from `pitch-stats.md` constants: missed-call cost avoided, interpreter cost avoided)
-- [ ] Reconnect handling (`session.resume` within 30s window)
-- [ ] Barge-in handling (flush output buffer on `interrupted`)
-- [ ] Explicit session termination on hangup/unload (billing hygiene)
+---
 
-## Day 6 — 9/27: deploy + harden
-- [ ] Deploy to Vercel, confirm public application URL works end-to-end for a stranger (not just localhost)
-- [ ] Run the three test passes from the design doc: scripted Spanish path, English fallback, one deliberate hard case (mumbling/noise)
-- [ ] Fix whatever breaks under a cold, unrehearsed run
+## Day by day
 
-## Day 7 — 9/28: submission assets
-- [ ] Record pitch video (≤5 min, MP4, ≤300MB) — structure: problem 0:00–0:30, demo 0:30–2:30, business case 2:30–4:00 (cite `pitch-stats.md`), team/roadmap 4:00–5:00
-- [ ] Build slide deck (PDF)
-- [ ] Cover image (PNG/JPG, 16:9)
-- [ ] Write title (≤50 chars), short description (≤255 chars), long description (≥100 words), tech/category tags
-- [ ] Push GitHub repo public, confirm commit history actually shows build progress (not one final dump commit — this was flagged as a fatal mistake in the hackathon-winning research)
+### Day 1 — Mon 22 Sep · pivot and documentation ✅
+Kill the previous product. Rebuild the research from primary sources. Write the PRD, the design spec and the implementation plan. **Done.**
 
-## Day 8 — 9/29: buffer
-- [ ] Fix anything the Day 6 hard-case testing surfaced
-- [ ] Full run-through of the actual submission form against the deliverables checklist in `PRD.md` §6
-- [ ] Submit
+### Day 2 — Tue 23 Sep · scaffold, deploy, and the endpoint that is the product
+Plan **Tasks 1–3**: Next.js scaffold, `/api/call`, **a live Vercel URL**, the sentinel protocol, the OpenAI SSE encoder and `/api/llm/v1/chat/completions`.
 
-## Deadline — 9/30
-Hard stop. Nothing scheduled here on purpose — if Day 8 buffer wasn't needed, this is slack.
+*Done when:* `curl -N -X POST https://<deployment>/api/llm/v1/chat/completions` streams back text you typed into the request, byte for byte.
+
+### Day 3 — Wed 24 Sep · the agent, and the five gates
+Plan **Tasks 4–5**: the stored agent with its custom `llm`, then G1–G5 measured and written into the spec.
+
+*Done when:* the spec's §3.2 carries real numbers and real logged request bodies, and you know whether the server can stay stateless. **This is the riskiest day. Do not let it slip.**
+
+### Day 4 — Thu 25 Sep · audio
+Plan **Tasks 6–7**: PCM codec, capture worklet, playback with a barge-in flush that actually stops scheduled sources.
+
+*Done when:* you can hear the greeting in the browser and talking over the agent stops its audio mid-word.
+
+### Day 5 — Fri 26 Sep · the receipt and the socket
+Plan **Tasks 8–9**: the ledger reducer and the relay client.
+
+*Done when:* the unit suite is green and a scripted call types, speaks, and reports a match.
+
+### Day 6 — Sat 27 Sep · the screen
+Plan **Task 10**: captions, composer, quick phrases, ledger, status bar, assistant toggle.
+
+*Done when:* a stranger could place a call with no instructions.
+
+### Day 7 — Sun 28 Sep · deletion, browsers, latency
+Plan **Tasks 11–12**: `/api/end`, the deletion banner, Chrome/Firefox/Safari, the expiry warning, and one measured `time_to_first_audio_ms` in the README.
+
+*Done when:* the recording is gone and the browser matrix in `docs/BROWSER-NOTES.md` is filled in — **including the Firefox echo-cancellation check.**
+
+### Day 8 — Mon 29 Sep · rehearse and record
+Plan **Task 13** part one: re-scan the leaderboard, re-check the live submission form, write the copy, record the video. Force a deliberate ledger mismatch on camera if you can — a receipt that can fail is worth more than one that always passes.
+
+*Done when:* the video exists as a file, under the real limits from the real form.
+
+### Day 9 — Tue 30 Sep · submit early
+Plan **Task 13** part two. Submit with hours to spare, then spend the remainder improving the long description. **Do not be building at 23:00.**
+
+---
+
+## Standing risks
+
+| Risk | Likelihood | Impact | Mitigation | Trigger to act |
+|---|---|---|---|---|
+| **G1 fails** — the typed text does not reach our endpoint in the request body | Medium | High — the server stops being stateless | Path B is already designed (spec §3.2): per-call agent, `base_url` with a unique path segment, 60-second delete-on-read store | Day 3. If it fails, add the Path B task before Task 9 and cut assistant mode if time is short. |
+| **G2 fails** — the agent will not stay silent when nothing is pending | Medium | High — it babbles over the hearing party | Return `" "`; failing that, `output.volume: 0` for suppressed turns (volume is mutable) | Day 3 |
+| **Both G1 and G2 fail** | Low | Severe | Path C: one session per utterance using `greeting`, which is verbatim by documentation. Costs a reconnect gap in the captions. | Day 3. Decide the same day; do not carry the uncertainty. |
+| **A competitor lands the same product late** | Medium — 75 drafts were still unsubmitted on 2026-09-22 | Medium | The ledger and the deletion remain differentiators; name theirs in the submission rather than being caught by it | Day 8 re-scan |
+| **The custom-LLM hop adds real latency** | Low — verbatim returns immediately with no inference | Medium | Measure in G3 on day 3, not on day 8 | Day 3 |
+| **Firefox echo cancellation dies** and the agent interrupts itself | Medium — it is the single most common bug in this stack | High on camera | `grep -rn "sampleRate" app lib public` must only find the worklet and `ctx.sampleRate` | Day 7 |
+| **A session is left open and bills** | Medium | Low ($50 of credits, ~11h) | `max_session_duration_seconds: 600`, always `session.end`, `pagehide` handler | Continuous |
+| **LLM Gateway spend** — excluded from the free credits | Low | Low | Assistant mode is off by default; verbatim costs nothing extra | Continuous |
+| **Writing a claim that prior art contradicts** | Medium — it already happened once in this repo | Severe | `pitch-stats.md` §0 and §4 are read before any originality sentence is written | Every time copy is written |
+| **Scope creep into a post-call artifact** | Medium — the deleted product had a nice one | High — it contradicts §5 of the spec | Spec §0.1. If you catch yourself designing a transcript export, stop. | Continuous |
+| **Solo build, no slack** | Certain | Medium | Days 8–9 are deliberately not build days | Day 6. If the screen is not usable by Saturday night, cut assistant mode and the language beat. |
+
+## What gets cut first, in order
+
+If a day slips, cut in this sequence and do not renegotiate:
+
+1. The stretch language beat (PRD §4.6)
+2. Assistant mode (PRD §4.5) — the product is whole without it
+3. Quick phrases beyond three
+4. The measured latency number (nice, not load-bearing)
+
+**Never cut:** the verbatim ledger, the live captions, or the deletion. Those three are the submission.
