@@ -1,4 +1,8 @@
 export const dynamic = "force-dynamic";
+// The retry schedule below sleeps ~10s on its own before any network round-trips.
+// Extend past Vercel's default execution window so a slow upstream fails
+// honestly (a real 502) instead of getting killed mid-retry by the platform.
+export const maxDuration = 15;
 
 const ATTEMPTS = [0, 500, 1500, 3000, 5000]; // ~10s total, per spec §5.3
 
