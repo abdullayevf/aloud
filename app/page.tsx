@@ -33,63 +33,77 @@ export default function Page() {
     setConnecting(true);
     setError(null);
 
-    const fetchCredentials: CredentialsFetcher = async (recreate) => {
-      const response = await fetch("/api/call", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(recreate ? { recreate: true } : {}),
-      });
-      if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(typeof body.error === "string" ? body.error : "Could not start the call");
-      }
-      return response.json();
-    };
+    let ctx: AudioContext | undefined;
+    let player: ReplyPlayer | undefined;
 
-    // NEVER pass sampleRate here. Firefox loses echo cancellation; Safari garbles.
-    const ctx = new AudioContext();
-    await ctx.resume();
-    const player = new ReplyPlayer(ctx);
-
-    let relay: RelayClient;
     try {
-      relay = await connectWithRecovery(
-        fetchCredentials,
-        {
-          onCaption: setPartial,
-          onCaptionFinal: (text) => {
-            setFinals((f) => [...f, text]);
-            setPartial("");
+      // NEVER pass sampleRate here. Firefox loses echo cancellation; Safari garbles.
+      ctx = new AudioContext();
+      await ctx.resume();
+      player = new ReplyPlayer(ctx);
+
+      const fetchCredentials: CredentialsFetcher = async (recreate) => {
+        const response = await fetch("/api/call", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(recreate ? { recreate: true } : {}),
+        });
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(typeof body.error === "string" ? body.error : "Could not start the call");
+        }
+        return response.json();
+      };
+
+      let relay: RelayClient;
+      try {
+        relay = await connectWithRecovery(
+          fetchCredentials,
+          {
+            onCaption: setPartial,
+            onCaptionFinal: (text) => {
+              setFinals((f) => [...f, text]);
+              setPartial("");
+            },
+            onSpoken: (text, interrupted) => push({ type: "spoken", text, interrupted }),
+            onStatus: setStatus,
+            onError: setError,
           },
-          onSpoken: (text, interrupted) => push({ type: "spoken", text, interrupted }),
-          onStatus: setStatus,
-          onError: setError,
-        },
-        player,
-      );
-    } catch (err) {
-      // Nothing connected — don't leak the context/player this attempt created.
-      player.close();
-      ctx.close();
-      setError(err instanceof Error ? err.message : "Could not start the call");
-      setConnecting(false);
-      return;
-    }
-    client.current = relay;
+          player,
+        );
+      } catch (err) {
+        // Nothing connected — don't leak the context/player this attempt created.
+        player.close();
+        ctx.close();
+        setError(err instanceof Error ? err.message : "Could not start the call");
+        return;
+      }
+      client.current = relay;
 
-    try {
-      const mic = new MicCapture(ctx);
-      // sendAudio is a no-op before session.ready — audio sent earlier is discarded.
-      await mic.start((audio) => relay.sendAudio(audio));
-      capture.current = mic;
-      setLive(true);
+      try {
+        const mic = new MicCapture(ctx);
+        // sendAudio is a no-op before session.ready — audio sent earlier is discarded.
+        await mic.start((audio) => relay.sendAudio(audio));
+        capture.current = mic;
+        setLive(true);
+      } catch (err) {
+        // The socket connected but the mic failed (e.g. permission denied) —
+        // don't leave a live, billing session with no way to hang it up, and
+        // don't leak the AudioContext either (hangUp only closes the player).
+        client.current = null;
+        await relay.hangUp();
+        ctx.close();
+        setError(err instanceof Error ? err.message : "Could not access the microphone");
+      }
     } catch (err) {
-      // The socket connected but the mic failed (e.g. permission denied) —
-      // don't leave a live, billing session with no way to hang it up.
-      client.current = null;
-      await relay.hangUp();
-      setError(err instanceof Error ? err.message : "Could not access the microphone");
+      // new AudioContext() / ctx.resume() itself failed (construction limit,
+      // no audio hardware, a rejected resume()) before any connection was
+      // attempted — nothing to hang up, just release whatever was created.
+      player?.close();
+      ctx?.close();
+      setError(err instanceof Error ? err.message : "Could not start audio for the call");
     } finally {
+      // Unconditionally guaranteed, whichever of the paths above ran (or none did).
       setConnecting(false);
     }
   }
