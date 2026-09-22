@@ -125,3 +125,90 @@ export class RelayClient {
     this.socket.close();
   }
 }
+
+/** Fetches fresh connection credentials. `recreate: true` forces a new stored
+ * agent rather than reusing one that might be invisible on this network. */
+export interface CredentialsFetcher {
+  (recreate: boolean): Promise<Credentials>;
+}
+
+export interface RecoveryOptions {
+  /** Total connection attempts, including the first. Bounded so a dead agent
+   * id cannot loop forever. */
+  maxAttempts?: number;
+  SocketImpl?: typeof WebSocket;
+}
+
+const AGENT_NOT_FOUND = /^agent_not_found:/i;
+
+class RetrySignal extends Error {}
+
+async function attemptConnect(
+  credentials: Credentials,
+  handlers: RelayHandlers,
+  player: ReplyPlayer,
+  SocketImpl: typeof WebSocket,
+  canRetryOnAgentNotFound: boolean,
+): Promise<RelayClient> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const client = new RelayClient(
+      credentials,
+      {
+        ...handlers,
+        onStatus: (status) => {
+          handlers.onStatus(status);
+          if (!settled && status === "connected") {
+            settled = true;
+            resolve(client);
+          }
+        },
+        onError: (message) => {
+          if (settled) return;
+          settled = true;
+          if (AGENT_NOT_FOUND.test(message) && canRetryOnAgentNotFound) {
+            // Transient: the caller never sees this one. A visible error here
+            // would read as "the call failed" when a silent retry is coming.
+            reject(new RetrySignal());
+            return;
+          }
+          handlers.onError(message);
+          reject(new Error(message));
+        },
+      },
+      player,
+      SocketImpl,
+    );
+    client.connect();
+  });
+}
+
+/**
+ * Connects with automatic recovery from the agent-visibility partition: a
+ * stored agent created from Vercel's network has been observed invisible —
+ * agent_not_found on the socket — to calls from another network for 30+
+ * minutes with no convergence (docs/research/gate-results-2026-09-22.md).
+ * On that specific error, re-fetch credentials with recreate:true (tokens
+ * are single-use regardless, so a fresh one is required either way) and
+ * reconnect, bounded by maxAttempts rather than looping forever on a dead
+ * id. Any other error (a bad network, a non-recoverable session.error, a
+ * 403/429 thrown by fetchCredentials) surfaces immediately through the
+ * caller's onError, with no retry, and rejects the returned promise.
+ */
+export async function connectWithRecovery(
+  fetchCredentials: CredentialsFetcher,
+  handlers: RelayHandlers,
+  player: ReplyPlayer,
+  { maxAttempts = 3, SocketImpl = WebSocket }: RecoveryOptions = {},
+): Promise<RelayClient> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const credentials = await fetchCredentials(attempt > 1);
+    try {
+      return await attemptConnect(credentials, handlers, player, SocketImpl, attempt < maxAttempts);
+    } catch (error) {
+      if (error instanceof RetrySignal) continue;
+      throw error;
+    }
+  }
+  throw new Error("connectWithRecovery: exhausted attempts");
+}
