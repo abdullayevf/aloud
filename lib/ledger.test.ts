@@ -20,6 +20,10 @@ describe("normalizeForCompare", () => {
       normalizeForCompare("I would like to make an appointment"),
     );
   });
+
+  it("does not leave a stray trailing space when punctuation is preceded by whitespace", () => {
+    expect(normalizeForCompare("How are you ?")).toBe(normalizeForCompare("How are you?"));
+  });
 });
 
 describe("ledgerReducer", () => {

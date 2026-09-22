@@ -24,6 +24,7 @@ export function normalizeForCompare(text: string): string {
     .trim()
     .replace(/\s+/g, " ")
     .replace(/[.!?,;:]+$/g, "")
+    .trim()
     .toLowerCase();
 }
 
