@@ -23,6 +23,7 @@ export default function Page() {
 
   const client = useRef<RelayClient | null>(null);
   const capture = useRef<MicCapture | null>(null);
+  const expiryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const push = useCallback((event: LedgerEvent) => {
     setUtterances((state) => ledgerReducer(state, event));
@@ -86,6 +87,10 @@ export default function Page() {
         await mic.start((audio) => relay.sendAudio(audio));
         capture.current = mic;
         setLive(true);
+
+        // session_expired arrives as a 1008 close with NO warning event. Run our own timer.
+        const warnAt = (600 - 60) * 1000;
+        expiryTimer.current = setTimeout(() => setError("This call ends in 60 seconds."), warnAt);
       } catch (err) {
         // The socket connected but the mic failed (e.g. permission denied) —
         // don't leave a live, billing session with no way to hang it up, and
@@ -109,6 +114,11 @@ export default function Page() {
   }
 
   async function hangUp() {
+    if (expiryTimer.current) {
+      clearTimeout(expiryTimer.current);
+      expiryTimer.current = null;
+    }
+
     const relay = client.current;
     capture.current?.stop();
     await relay?.hangUp();
