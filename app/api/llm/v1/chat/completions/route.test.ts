@@ -40,6 +40,54 @@ describe("POST /api/llm/v1/chat/completions", () => {
     expect(await body(res)).toContain(JSON.stringify("hello"));
   });
 
+  it("accepts authorization without a Bearer prefix — the reference server strips it either way", async () => {
+    const res = await POST(
+      new Request("https://example.com/api/llm/v1/chat/completions", {
+        method: "POST",
+        headers: { authorization: "test-secret", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "aloud-verbatim",
+          stream: true,
+          messages: [{ role: "user", content: encodeOutbound("verbatim", "no bearer") }],
+        }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await body(res)).toContain(JSON.stringify("no bearer"));
+  });
+
+  it("accepts x-api-key with a Bearer prefix too", async () => {
+    const res = await POST(
+      new Request("https://example.com/api/llm/v1/chat/completions", {
+        method: "POST",
+        headers: { "x-api-key": "Bearer test-secret", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "aloud-verbatim",
+          stream: true,
+          messages: [{ role: "user", content: encodeOutbound("verbatim", "bearer on x-api-key") }],
+        }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await body(res)).toContain(JSON.stringify("bearer on x-api-key"));
+  });
+
+  it("falls through to x-api-key when authorization is present but empty — regression for the ?? vs || bug", async () => {
+    const res = await POST(
+      new Request("https://example.com/api/llm/v1/chat/completions", {
+        method: "POST",
+        headers: { authorization: "", "x-api-key": "test-secret", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "aloud-verbatim",
+          stream: true,
+          messages: [{ role: "user", content: encodeOutbound("verbatim", "empty authorization") }],
+        }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await body(res)).toContain(JSON.stringify("empty authorization"));
+  });
+
   it("reads content that arrives as an array of parts, not just a string", async () => {
     const res = await POST(
       request([{ role: "user", content: [{ text: encodeOutbound("verbatim", "parts form") }] }]),

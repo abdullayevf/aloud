@@ -43,7 +43,10 @@ describe("POST /api/call — agent update failure", () => {
     // Must not return the 200 { token, agentId } success shape when the update failed.
     expect(response.status).not.toBe(200);
     expect(body.agentId).toBeUndefined();
-    expect(body.error).toMatch(/agent update failed/i);
-    expect(body.error).toMatch(/500/);
+    // The client-facing message must be generic: the upstream body (and status)
+    // are logged server-side only, never forwarded, because the request that
+    // failed carries our shared secret in its own body (see route.ts).
+    expect(body.error).not.toMatch(/server error/i);
+    expect(body.error).not.toMatch(/500/);
   });
 });

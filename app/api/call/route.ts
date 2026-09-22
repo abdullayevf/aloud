@@ -20,7 +20,13 @@ async function ensureAgent(apiKey: string, origin: string, secret: string): Prom
         headers,
         body: JSON.stringify(buildAgentPayload(origin, secret)),
       });
-      if (!updated.ok) throw new Error(`agent update failed (${updated.status}): ${await updated.text()}`);
+      if (!updated.ok) {
+        // Never forward raw upstream body to the client: the request we just sent
+        // carries our shared secret in llm[0].api_key, and a FastAPI 422 response
+        // echoes the offending input by default. Log server-side only.
+        console.error(`agent update failed (${updated.status}): ${await updated.text()}`);
+        throw new Error("agent update failed");
+      }
       return existing.id;
     }
   }
@@ -30,7 +36,11 @@ async function ensureAgent(apiKey: string, origin: string, secret: string): Prom
     headers,
     body: JSON.stringify(buildAgentPayload(origin, secret)),
   });
-  if (!created.ok) throw new Error(`agent create failed (${created.status}): ${await created.text()}`);
+  if (!created.ok) {
+    // Same reasoning as above: the create body also carries the shared secret.
+    console.error(`agent create failed (${created.status}): ${await created.text()}`);
+    throw new Error("agent create failed");
+  }
   const { id } = (await created.json()) as { id: string };
   return id;
 }
@@ -51,14 +61,17 @@ export async function POST() {
       cache: "no-store",
     });
     if (!upstream.ok) {
-      return Response.json(
-        { error: `Token request failed (${upstream.status}): ${await upstream.text()}` },
-        { status: upstream.status },
-      );
+      // Do not forward the upstream body to the client — same reasoning as the
+      // agent create/update paths above. Log server-side only.
+      console.error(`token request failed (${upstream.status}): ${await upstream.text()}`);
+      return Response.json({ error: "Could not start the call" }, { status: upstream.status });
     }
     const { token } = (await upstream.json()) as { token: string };
     return Response.json({ token, agentId }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    return Response.json({ error: String(error) }, { status: 502 });
+    // `error` may embed upstream response text (e.g. our own thrown Errors
+    // above, or a network error). Never return it to the client — log only.
+    console.error("agent create/update or token request failed:", error);
+    return Response.json({ error: "Could not start the call" }, { status: 502 });
   }
 }

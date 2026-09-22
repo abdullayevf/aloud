@@ -26,6 +26,10 @@ export function buildAgentPayload(origin: string, sharedSecret: string) {
   if (!origin.startsWith("https://") || /localhost|127\.0\.0\.1/.test(origin)) {
     throw new Error(`base_url must be a public https origin, got: ${origin}`);
   }
+  // Strip trailing slash(es) so base_url never ends up with a double slash
+  // (e.g. "https://foo.vercel.app/" -> ".../api/llm/v1", not ".../..//api/llm/v1").
+  // A double slash here is a 404 that presents as "the agent silently never speaks".
+  origin = origin.replace(/\/+$/, "");
 
   return {
     name: AGENT_NAME,

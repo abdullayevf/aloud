@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { buildVerbatimSSE } from "@/lib/openai-sse";
 import { decodeOutbound } from "@/lib/sentinel";
 
@@ -20,9 +21,18 @@ interface Message { role: string; content?: Content }
 function authorized(request: Request): boolean {
   const secret = process.env.ALOUD_LLM_SHARED_SECRET;
   if (!secret) return false;
+  // Headers.get() returns "" (not null) for a present-but-empty header, so `??`
+  // would not fall through to x-api-key in that case. Use `||` instead.
   const header =
-    request.headers.get("authorization") ?? request.headers.get("x-api-key") ?? "";
-  return header.replace(/^Bearer\s+/i, "").trim() === secret;
+    request.headers.get("authorization") || request.headers.get("x-api-key") || "";
+  const provided = header.replace(/^Bearer\s+/i, "").trim();
+
+  // Constant-time comparison: timingSafeEqual throws on unequal-length buffers,
+  // so compare lengths first. Leaking the length alone is not sensitive here.
+  const providedBuf = Buffer.from(provided, "utf8");
+  const secretBuf = Buffer.from(secret, "utf8");
+  if (providedBuf.length !== secretBuf.length) return false;
+  return timingSafeEqual(providedBuf, secretBuf);
 }
 
 /** `content` may arrive as a string or as an array of parts. Handle both or the sentinel is missed. */
@@ -37,6 +47,14 @@ function textOf(content: Content): string {
  * yet been followed by an assistant turn. If the agent has already spoken since
  * it was typed, it is done and we must stay silent — otherwise every reply the
  * hearing party triggers would repeat the user's last sentence.
+ *
+ * Known limitation: this only ever returns the LAST such message. If two
+ * utterances are typed before the agent replies to the first, the earlier one
+ * is silently never spoken — there is no queue. Fixing this depends on a design
+ * not yet made (does the client enforce one-utterance-in-flight, or should this
+ * route concatenate pending utterances?), so it is deliberately left as-is here.
+ * Deferred to the client (Task 10) or a Path B design — see
+ * docs/superpowers/specs/2026-09-22-aloud-design.md §3.2.
  */
 function pendingUtterance(messages: Message[]) {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -105,10 +123,19 @@ async function proxyToGateway(
   created: number,
 ): Promise<Response> {
   const apiKey = process.env.ASSEMBLYAI_API_KEY;
+  if (!apiKey) {
+    // Nothing to authenticate with — go straight to the same fallback the
+    // catch below returns, instead of sending a request that can only fail.
+    return stream(
+      buildVerbatimSSE("The assistant is unavailable. The caller will type.", model, id, created),
+    );
+  }
   try {
     const upstream = await fetch("https://llm-gateway.assemblyai.com/v1/chat/completions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      // Unlike agents.assemblyai.com, the LLM Gateway host takes the raw key with
+      // no Bearer prefix (docs/assemblyai-integration.md, LLM Gateway section).
+      headers: { Authorization: `${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: "claude-sonnet-4-6",
         stream: true,

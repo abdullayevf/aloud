@@ -24,6 +24,12 @@ describe("buildAgentPayload", () => {
     expect(() => buildAgentPayload("http://localhost:3000", "s")).toThrow(/https/i);
   });
 
+  it("strips a trailing slash so base_url has no double slash", () => {
+    const trailing = buildAgentPayload("https://aloud.example/", "s3cret") as any;
+    expect(trailing.llm[0].base_url).toBe("https://aloud.example/api/llm/v1");
+    expect(trailing.llm[0].base_url).not.toContain("//api");
+  });
+
   it("uses a voice id from the verified list", () => {
     expect(["alba", "eve", "george", "jane", "jean", "mary", "michael"]).toContain(
       payload().voice.voice_id,
