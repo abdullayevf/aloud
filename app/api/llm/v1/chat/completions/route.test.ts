@@ -103,13 +103,28 @@ describe("POST /api/llm/v1/chat/completions", () => {
     expect(await body(res)).toContain(JSON.stringify("I'd like to reschedule."));
   });
 
+  // The shape below is the one measured on 2026-09-22 against a live session:
+  // reply.create{instructions} arrives as the LAST entry, role "system", after
+  // the agent's own prompt and the assistant history.
+  // See docs/research/gate-results-2026-09-22.md, G1 re-probe.
+  it("speaks the instruction that arrives last as a system message", async () => {
+    const res = await POST(
+      request([
+        { role: "system", content: "You are an automated relay assistant on a live phone call." },
+        { role: "assistant", content: "Hello. You're on a relay call. " },
+        { role: "system", content: encodeOutbound("verbatim", "I'd like to reschedule Thursday.") },
+      ]),
+    );
+    expect(await body(res)).toContain(JSON.stringify("I'd like to reschedule Thursday."));
+  });
+
   it("uses the LAST sentinel message, not the first", async () => {
     const res = await POST(
       request([
-        { role: "user", content: encodeOutbound("verbatim", "first") },
+        { role: "system", content: encodeOutbound("verbatim", "first") },
         { role: "assistant", content: "first" },
         { role: "user", content: "the front desk said something" },
-        { role: "user", content: encodeOutbound("verbatim", "second") },
+        { role: "system", content: encodeOutbound("verbatim", "second") },
       ]),
     );
     const text = await body(res);
@@ -124,11 +139,15 @@ describe("POST /api/llm/v1/chat/completions", () => {
     expect(text).not.toMatch(/"content":"[^"]+"/);
   });
 
-  it("does not re-speak an utterance that has already been spoken", async () => {
+  // `instructions` is one-shot: it is in its own turn's body and gone from the
+  // next. So a turn that follows a spoken utterance carries the spoken text in
+  // assistant history with the wrapper already stripped, and nothing to say.
+  // This is what makes the route stateless — measured, not assumed.
+  it("stays silent on the turn after an utterance was spoken", async () => {
     const res = await POST(
       request([
-        { role: "user", content: encodeOutbound("verbatim", "already said") },
-        { role: "assistant", content: "already said" },
+        { role: "system", content: "You are an automated relay assistant on a live phone call." },
+        { role: "assistant", content: "already said " },
         { role: "user", content: "and then they replied" },
       ]),
     );

@@ -100,7 +100,9 @@ Choices, with reasons:
 
 ### 2.3 Agent lifecycle
 
-One stored agent, created on first use and reused, is enough **if** validation gate G1 (§3.2) passes. If it fails and we need per-call correlation, the agent becomes per-call and `/api/end` deletes it. Both paths are in the plan; G1 decides which ships.
+**One stored agent, created on first use and reused.** Settled: G1 (§3.2) passed, so no per-call correlation is needed and the per-call-agent variant is not built.
+
+One caveat carried over from the gate runs and **still open**: an agent created from Vercel's network was invisible to REST and WebSocket calls from another network for 30+ minutes. Real users connect from outside Vercel's network too, so `/api/call` must treat `agent_not_found` as recoverable — recreate rather than reuse — instead of assuming the stored agent resolves everywhere (§8).
 
 ---
 
@@ -113,22 +115,25 @@ AssemblyAI calls `POST {base_url}/chat/completions` for **every reply**, with st
 The user's typed text reaches that handler by travelling **in band**, through AssemblyAI, in the request AssemblyAI makes to us:
 
 ```
-user types ──► browser sends over the WebSocket:
-                 { "type": "conversation.message", "role": "user",
-                   "content": "\u0001SAY\u0001<the typed text>" }
-                 { "type": "reply.create" }
+user types ──► browser sends over the WebSocket, as ONE message:
+                 { "type": "reply.create",
+                   "instructions": "\u0001SAY\u0001<the typed text>\u0001END\u0001" }
             ──► AssemblyAI POSTs our /api/llm/v1/chat/completions
-                 with that message in `messages`
+                 with that text as the LAST `messages` entry, role "system"
             ──► we find the sentinel, strip it, stream the remainder back
             ──► TTS speaks it
             ──► transcript.agent returns → the ledger diffs it
 ```
 
-This is the design that makes the server **stateless**: no pending-utterance store, no correlation problem, nothing about the call's content held anywhere on our side. It is also the design that depends most directly on an undocumented request shape — hence G1.
+This is the design that makes the server **stateless**: no pending-utterance store, no correlation problem, nothing about the call's content held anywhere on our side.
+
+**Measured 2026-09-22** (G1 re-probe, [`docs/research/gate-results-2026-09-22.md`](../../research/gate-results-2026-09-22.md)): the text arrives **byte-identical** — verified against em dashes, typographic quotes, currency symbols, newlines and tabs, astral-plane emoji, and a 917-character utterance — and the arrival is **one-shot**, present in its own turn's request body and gone from the next. That is what removes the queue: a request either carries an utterance to speak or it does not, so an utterance cannot be dropped, duplicated or re-spoken by this mechanism.
+
+Two mechanisms were measured and rejected. `conversation.message`, which earlier drafts of this spec specified, never reaches a custom LLM's request body at all — it is documented in the prose events reference and absent from the machine-readable API contract. Mutating `system_prompt` mid-session does deliver, but the text is sticky across turns and it destroys the stored agent's prompt.
 
 ### 3.2 Validation gates — run these before building on any of it
 
-Each is a contract question answerable in one sitting with an API key. **None is a research project. Run them first; the plan's Task 5 is nothing but these.**
+Each is a contract question answerable in one sitting with an API key. **All five are now closed** — measured 2026-09-22 and 2026-09-23, results in the table below and full evidence in [`docs/research/gate-results-2026-09-22.md`](../../research/gate-results-2026-09-22.md). The questions are kept as written, unedited, so the record shows what was asked before the answers were known. Re-run them with `node scripts/gate-probe.mjs https://<deployment>` after any change to the agent config or the pass-through.
 
 #### What a reference implementation already settles (read 2026-09-22)
 
@@ -148,31 +153,31 @@ AssemblyAI's own BYO-LLM demo server — [`dan-ince-aai/voice-agent-byo-llm-demo
 
 | | Question | Decided fallback if it fails |
 |---|---|---|
-| **G1** *(narrowed)* | The body carries `messages` — settled above. What is **not** settled: does a `conversation.message {role:"user", content}` arrive with its `content` **byte-identical**, so the sentinel survives? And is the agent's `system_prompt` included as a system message, which assistant mode (§4.2) relies on when it proxies? | **Path B**: per-call stored agent whose `base_url` carries a unique path segment (`/api/llm/<callId>/v1` — it still has to end in `/v1`); `POST /api/say/<callId>` parks the text in a 60-second, delete-on-read store; the handler reads it. Correlation solved by construction. Costs one agent create + delete per call and puts call content on our server for seconds — so it is the fallback, not the default. |
-| **G2** ⚠ **now the top risk** | Is an **empty** assistant message accepted when nothing is pending — i.e. can the agent stay silent when the hearing party speaks? The reference implementation above always returns *something*, so it offers no evidence either way. Its opening `{role:"assistant", content:""}` delta is accepted, which is weak evidence that empty content parses; it says nothing about whether a reply with **only** empty content is tolerated or is spoken as an awkward pause. | Return a single space. If TTS still vocalises, set `output.volume: 0` (mutable) for suppressed turns and restore it before a real one. If neither holds, **Path C**. |
+| **G1** ✅ **closed** | Does caller-supplied text reach our endpoint's request body byte-identical, and is the agent's `system_prompt` included as a system message (which assistant mode §4.2 relies on when it proxies)? **Both yes**, via `reply.create { instructions }` — see §3.1 and the re-probe evidence. `conversation.message`, the mechanism this gate was originally written against, does not work and is gone from the design. | ~~Path B~~ **not needed and not built.** It was: a per-call stored agent whose `base_url` carries a unique path segment, plus a 60-second delete-on-read store. Recorded here only so nobody re-derives it — the captured headers carry no session identifier, so Path B would genuinely have required a per-call agent to correlate. |
+| **G2** ✅ **closed — it stays silent** | Is an **empty** assistant message accepted when nothing is pending — i.e. can the agent stay silent when the hearing party speaks? The reference implementation above always returns *something*, so it offers no evidence either way. Its opening `{role:"assistant", content:""}` delta is accepted, which is weak evidence that empty content parses; it says nothing about whether a reply with **only** empty content is tolerated or is spoken as an awkward pause. | Return a single space. If TTS still vocalises, set `output.volume: 0` (mutable) for suppressed turns and restore it before a real one. If neither holds, **Path C**. |
 | **G3** | Added latency of the extra hop, measured against the managed model. | Expected *lower* in verbatim mode — we return immediately, with no inference. If it is not, profile before redesigning. |
 | **G4** | Does `transcript.agent.text` reproduce the streamed text closely enough to diff, or does TTS normalisation alter it (numbers, punctuation, casing)? | Normalise both sides before comparison (§3.3) and show the raw pair on demand. A mismatch that is purely normalisation must not read as an alteration. |
 | **G5** | Does `DELETE /v1/sessions/{id}` succeed immediately after `session.ended`, or must artifacts exist first? | Retry with backoff for up to 10 s, then surface the failure honestly (§5.3). |
 
-**Path C, the last resort:** one session per utterance, using `greeting` — the documented verbatim path. Rejected as the primary because the reconnect gap drops the hearing party's speech, and a deaf spot in the captions is an accessibility defect. Build it only if G1 *and* G2 both fail.
+~~**Path C, the last resort:**~~ one session per utterance, using `greeting`. **Not needed — G1 and G2 both passed.** Recorded so it is not re-derived: it was rejected as the primary because the reconnect gap drops the hearing party's speech, and a deaf spot in the captions is an accessibility defect.
 
 #### Gate results, measured 2026-09-22
 
 Run against the live deployment (`https://aloud-implementation.vercel.app`) with real AssemblyAI WebSocket sessions. `scripts/gate-probe.mjs` (committed) covers **G1, G3 and G4** in its default mode, and **G2** via its `--idle` flag; **G5** (`DELETE /v1/sessions/{id}` → 204) was verified separately, via a one-off script/curl-equivalent that is not part of the committed probe — `scripts/gate-probe.mjs` itself makes no `/v1/sessions/` call at all (only a `/v1/agents/{id}` delete, to clean up its own throwaway test agent). Full run transcripts, request-body log excerpts and the network-partition diagnostic trail are in the tracked file [`docs/research/gate-results-2026-09-22.md`](../../research/gate-results-2026-09-22.md) (the original Task 5 report lived under `.superpowers/sdd/`, which is gitignored and deleted at the end of the SDD process, so its evidence was moved here to keep the citation from dangling).
 
-**Known gap surfaced by this same investigation:** `pendingUtterance()` in `app/api/llm/v1/chat/completions/route.ts` only ever returns the last sentinel-tagged utterance — if two utterances are typed before the agent replies to the first, the earlier one is silently never spoken. Deliberately left unfixed pending a design decision (client-enforced one-utterance-in-flight vs. server-side concatenation); see the comment above that function.
+**A gap surfaced by that investigation, now closed:** `pendingUtterance()` could silently drop an utterance if two were typed before the agent replied to the first. It required no queue in the end. `reply.create { instructions }` carries the text *with* its own trigger and arrives one-shot, so each request carries exactly the utterance it is meant to speak. The function is now a scan for the sentinel from the end of `messages`, and the drop cannot occur.
 
 **Environment note (not one of the five gates, but blocking without a workaround):** in this run environment, AssemblyAI's Agents REST API and WS gateway are network-partitioned — an agent created via a request from Vercel's serverless network was consistently invisible (`404` on GET, absent from `LIST`, `agent_not_found` on WS `session.update`) to REST/WS calls from the probe machine's network, and symmetrically the reverse, sustained over 30+ minutes with no convergence, confirmed with both `fetch` and raw `curl` against `agents.assemblyai.com` directly (plain `uvicorn` responses, no CDN in the path). `/api/call` itself is unmodified and not at fault — a fresh agent created from the *same* network path as the WS connection resolves immediately. The gate probes below therefore mint the token via `/api/call` (unaffected — tokens are not agent-scoped) but create their own throwaway agent directly, from the same vantage point as the WS connection, using the exact payload shape of `lib/agent-config.ts`'s `buildAgentPayload()`. **This is a real risk worth escalating**, not just a probe inconvenience: production's real users also connect from outside Vercel's network (browser demo, §0), so if this partition is systemic rather than a momentary account/regional fluke, real calls could hit the same `agent_not_found`. Needs monitoring/retry-with-recreate logic before demo day; out of this session's scope to fix.
 
 | Gate | Result | Evidence |
 |---|---|---|
-| **G1** | **FAILED** | `conversation.message {type, role, content}` — sent exactly per the documented shape (verified live against `events-reference.md`), after `session.ready`, with a deliberate 800 ms gap before `reply.create` to rule out a race — **never appeared** in the subsequent `/api/llm/v1/chat/completions` request body, in any of 4 independent sessions: (1) `role:"user"` with the `\u0001SAY\u0001`-sentinel text, (2) `role:"user"` with plain ASCII text, (3) `role:"system"` with plain ASCII text, (4) repeated with the 800 ms delay. Every one of those request bodies contained only the `system` message plus two duplicated `assistant`-role messages holding the already-spoken greeting — confirming `assistant` turns **do** get added to history, but nothing sent via `conversation.message` ever does, regardless of role or content. The narrowed question this gate asked (byte-identity of `content`) is moot: `content` never arrives at all. Per this task's brief, Path B is **not** built in this session — flagged for the controller to decide (build Path B, or investigate further whether a different event/shape delivers text into the LLM request body). |
+| **G1** | **PASSED**, on the second attempt, via a different mechanism | `conversation.message` **FAILED** — sent exactly per the documented shape, both roles, plain ASCII and sentinel-wrapped, with and without an 800 ms gap before `reply.create`, across 4 independent sessions: it never appeared in the request body. **`reply.create { instructions }` PASSED** — the text arrives as the **last** `messages` entry, `role: "system"`, **byte-identical** across 5 adversarial cases (em dash, typographic quotes, `£30 & €40`, newline/tab, astral-plane emoji, 917 characters), with `U+0001` intact and nothing appended. The arrival is **one-shot**: present in its own turn's body, gone from the next. Mid-session `system_prompt` mutation also delivers but is sticky and overwrites the stored prompt — rejected. Full evidence, including the captured request headers, in [`gate-results-2026-09-22.md`](../../research/gate-results-2026-09-22.md). |
 | **G2** | **PASSED** | With nothing queued (no `conversation.message` sent — true idle — and also, incidentally, in all 4 of G1's failed-injection runs, since the server never saw a pending utterance either way), `reply.create` produced `reply.audio` frames for ~2.4 s but **zero** `transcript.agent` events across 5 separate turns. No words were transcribed as spoken. Minor nuance: audio frames were still streamed for the full ~2.4 s window even though nothing was said (possibly comfort-noise/silence padding) — worth confirming this doesn't hold the channel awkwardly against real barge-in, but it did not vocalise words over the hearing party. |
-| **G3** | **Measured, with a caveat** | `reply.create` → first `reply.audio`: **28 ms, 38 ms, 45 ms** across 3 runs (mean ≈ 37 ms). This is real evidence our endpoint responds fast with no inference overhead — but because of G1, every one of those replies had **empty** content (the endpoint's stay-silent path), not an actual echoed utterance. It measures our round-trip overhead, not verbatim-echo synthesis latency end-to-end. Re-measure once G1 is resolved. |
-| **G4** | **BLOCKED by G1** | Cannot diff `transcript.agent.text` against sent text — no utterance ever reached our endpoint to be echoed, so nothing was spoken to compare. The phone-number-formatting question (`415 555 0134`) is untested. |
+| **G3** | **PASSED** | `reply.create` → first `reply.audio`, measured 2026-09-23 with **real echoed content**: **28 ms, 29 ms, 30 ms** (mean 29 ms). The extra hop is not a latency risk in verbatim mode, which is what running no model buys. |
+| **G4** | **PASSED** | Measured 2026-09-23 end to end against the live deployment. `transcript.agent.text` came back **byte-identical** to the text sent, on all three utterances — including the `415 555 0134` phone-number case this gate names, an em dash and typographic apostrophes. TTS normalisation did not alter anything. The normalised comparison in §3.3 stays, as belt-and-braces rather than a load-bearing correction. |
 | **G5** | **PASSED** | `DELETE https://agents.assemblyai.com/v1/sessions/{id}` → **204** in **374 ms**, called shortly after `session.ended`. No retry needed. |
 
-**Net effect:** the sentinel-over-`conversation.message` mechanism this design's stateless server depends on (§3.1) does not deliver text into our endpoint's request body as tested. G2 and G5 hold. G3's number is real but not the metric intended. G4 is untested. This is reported as **DONE_WITH_CONCERNS**, not silently patched with Path B, per this session's scope.
+**Net effect:** all five gates are closed. The server is stateless as designed (§3.1), by `reply.create { instructions }` rather than the `conversation.message` this spec originally specified. Two further facts came out of the captured request headers and are load-bearing elsewhere: our endpoint has a **10-second read timeout**, and AssemblyAI **retries** — on a relay a retry means a sentence could be spoken twice (§8).
 
 ### 3.3 The ledger
 
@@ -283,9 +288,9 @@ client                                   server / AssemblyAI
   │◄─ transcript.user ───────────────────    ← finalise the caption line
   │                                          ← agent stays silent: our endpoint returns empty (G2)
   │ user types, presses send:
-  │── conversation.message {role:user, content:"\x01SAY\x01…"} ─►
-  │── reply.create ─────────────────────►
+  │── reply.create { instructions:"\x01SAY\x01…\x01END\x01" } ─►
   │                                       AssemblyAI ──► POST /api/llm/v1/chat/completions
+  │                                          the text is the LAST message, role "system"
   │                                                  ◄── stream: the typed text, unmodified
   │◄─ reply.started ─────────────────────
   │◄─ reply.audio { data } ──────────────    ← base64 PCM16 in `data`, NOT `audio`
@@ -325,6 +330,10 @@ Capture must terminate at the worklet — connecting through to `ctx.destination
 | Unintentional drop | browser | Within 30 s, reconnect with a **fresh** token and `session.resume { session_id }` first. On `session_not_found`/`forbidden`/`expired`, start a new session and say so on screen. |
 | `/api/llm` called with a bad shared secret | server | 401. AssemblyAI's `api_key` is the only caller that should reach it. |
 | `/api/llm` cannot find the sentinel | server | Stream back **empty** and log. Never guess at content. Silence is the safe failure for a relay. |
+| `/api/llm` takes longer than 10 s | server | The caller is the OpenAI Python SDK with `x-stainless-read-timeout: 10.0` (measured 2026-09-22). Verbatim returns in milliseconds; assistant mode must stream its first byte inside the budget or fall back to the fixed sentence. |
+| AssemblyAI **retries** a chat-completions request | server → the line | `x-stainless-retry-count` is present on every request, so retries happen. On a relay a retry means **the same sentence spoken twice**. The ledger will show two spoken lines against one typed line, which is the honest surface; not yet measured what triggers a retry. |
+| `agent_not_found` on connect | browser → `/api/call` | The stored agent may be invisible from the user's network (§2.3). Re-POST `/api/call` asking for a fresh agent rather than a reused one, mint a **fresh** token, and reconnect. |
+| `/api/call` called too often, or without the demo code | server | 429 with `Retry-After`, or 403. Sessions bill on socket-open duration, so token minting is the thing worth limiting. The code is unset by default so a judge's link works without one. |
 | LLM Gateway error in assistant mode | server | Stream a single fixed sentence — "The assistant is unavailable; the caller will type." — and flip the UI back to verbatim. |
 | `DELETE /v1/sessions` fails | browser | §5.3. |
 | Mic permission denied | browser | The call can still *speak*; captions are dead. Say exactly that; do not pretend the call is fine. |

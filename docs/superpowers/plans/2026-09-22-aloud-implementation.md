@@ -586,10 +586,11 @@ function textOf(content: Content): string {
 }
 
 /**
- * The pending utterance is the last sentinel-tagged user message that has not
- * yet been followed by an assistant turn. If the agent has already spoken since
- * it was typed, it is done and we must stay silent — otherwise every reply the
- * hearing party triggers would repeat the user's last sentence.
+ * SUPERSEDED — kept because Task 5's narrative above refers to it. The shipped
+ * version is simpler: `reply.create { instructions }` arrives one-shot, so
+ * there is no history to walk back through and no already-spoken utterance to
+ * guard against. Scan from the end for the sentinel, any role, and take the
+ * first hit. See `app/api/llm/v1/chat/completions/route.ts`.
  */
 function pendingUtterance(messages: Message[]) {
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -922,7 +923,9 @@ git commit -m "feat: stored relay agent with custom llm and spoken relay greetin
 
 ---
 
-### Task 5: Run the five validation gates
+### Task 5: Run the five validation gates ✅ DONE (2026-09-22/23)
+
+**Outcome, so the steps below are read as history rather than instructions:** G2, G3, G5 passed. **G1 failed** — `conversation.message`, which every step below is written against, does not reach a custom LLM's request body at all — and was re-probed the next morning and closed via **`reply.create { instructions }`**, which delivers byte-identical and one-shot. G4 then passed end to end, byte-identical, phone number included. Path B was **not** built and is not needed. Full evidence in [`docs/research/gate-results-2026-09-22.md`](../../research/gate-results-2026-09-22.md); the design is updated in spec §3.1–§3.2; `scripts/gate-probe.mjs` has been rewritten against the working mechanism and is the version to re-run.
 
 **Do not build the UI until this task is done.** Everything after it assumes answers. Spec §3.2 names each gate and its decided fallback.
 
@@ -997,6 +1000,8 @@ Run: `node scripts/gate-probe.mjs https://<your-deployment>` and read the Vercel
 **G1 — does the request body carry our message?** Look at the `[gate-probe] body` log line.
 - If `messages` contains `"\u0001SAY\u0001Testing one two three…"`: **G1 PASSES.** The design in spec §3 stands.
 - If it does not: **G1 FAILS.** Build Path B (spec §3.2): per-call agent with `base_url` = `${origin}/api/llm/<callId>/v1` (the `/v1` suffix is not optional — the agent appends `/chat/completions` to it), route at `app/api/llm/[callId]/v1/chat/completions/route.ts`, plus `POST /api/say/<callId>` holding the text for ≤60 s, delete-on-read. Add it as a task before Task 9 and say so in the spec.
+
+> **What actually happened:** G1 failed, and Path B was *not* the right answer. Before building a stateful fallback, the question "is there another mechanism?" was worth an hour — and there was one. `reply.create { instructions }` is in AssemblyAI's machine-readable API contract (`conversation.message` is not), delivers byte-identical, and is one-shot, which removes the queue the stateless design had been missing. **The lesson worth keeping: when a documented mechanism fails, check the formal contract against the prose docs before accepting the expensive fallback.**
 
 - [ ] **Step 4: Answer G2**
 
@@ -1558,6 +1563,13 @@ git commit -m "feat: verbatim ledger reducer with narrow normalisation"
 
 ### Task 9: The relay client
 
+**Two things Task 5's gate runs added to this task, both measured, neither optional:**
+
+1. **`agent_not_found` is recoverable, not fatal.** A stored agent created from Vercel's network has been observed invisible to another network for 30+ minutes. Real users connect from outside Vercel too. On that error, re-POST `/api/call` asking for a freshly created agent, mint a **fresh** token (they are single-use), and reconnect. This is the top remaining technical risk; do not ship without it.
+2. **A retry can speak the same sentence twice.** Every chat-completions request carries `x-stainless-retry-count`, so AssemblyAI's client retries. Nothing is known about what triggers one. Do not try to suppress it client-side — let the ledger show two spoken lines against one typed line, which is the honest surface, and measure it before demo day if there is time.
+
+`/api/call`'s demo code and per-IP rate limit shipped with Task 4's fix wave; the client should surface a 403 as "this demo needs an access code" and a 429 with its `Retry-After`.
+
 **Files:**
 - Create: `lib/relay-client.ts`
 - Test: `lib/relay-client.test.ts`
@@ -1632,16 +1644,17 @@ describe("RelayClient", () => {
     expect(handlers.onCaption).toHaveBeenLastCalledWith("I can help with that");
   });
 
-  it("wraps typed text in the sentinel and asks for a reply", () => {
+  it("sends the typed text as one-shot instructions on reply.create", () => {
     const { c } = client();
     void c.connect();
     FakeSocket.last.onopen?.();
     FakeSocket.last.emit({ type: "session.ready", session_id: "sess_1" });
     FakeSocket.last.sent.length = 0;
     c.say("hello", "verbatim");
-    const [message, reply] = FakeSocket.last.sent.map((s) => JSON.parse(s));
-    expect(message).toEqual({ type: "conversation.message", role: "user", content: "\u0001SAY\u0001hello" });
-    expect(reply).toEqual({ type: "reply.create" });
+    const sent = FakeSocket.last.sent.map((s) => JSON.parse(s));
+    expect(sent).toEqual([
+      { type: "reply.create", instructions: "\u0001SAY\u0001hello\u0001END\u0001" },
+    ]);
   });
 
   it("flushes playback when the hearing party starts speaking", () => {
@@ -1806,11 +1819,19 @@ export class RelayClient {
     this.send({ type: "input.audio", audio: base64 });
   }
 
-  /** Returns the utterance id the caller should hand to the ledger. */
+  /**
+   * Returns the utterance id the caller should hand to the ledger.
+   *
+   * ONE message, not two. The text rides on `reply.create` itself and arrives
+   * as the last `messages` entry of that reply's request body, byte-identical
+   * and one-shot (measured 2026-09-23, spec §3.1). That is what removes the
+   * queue: there is no window in which a second utterance can overwrite a
+   * first. Do not reintroduce `conversation.message` — it never reaches a
+   * custom LLM's request body at all.
+   */
   say(text: string, mode: RelayMode): string {
     const id = crypto.randomUUID();
-    this.send({ type: "conversation.message", role: "user", content: encodeOutbound(mode, text) });
-    this.send({ type: "reply.create" });
+    this.send({ type: "reply.create", instructions: encodeOutbound(mode, text) });
     return id;
   }
 

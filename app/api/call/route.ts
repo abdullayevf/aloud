@@ -1,9 +1,26 @@
 import { buildAgentPayload, AGENT_NAME } from "@/lib/agent-config";
 import { buildTokenUrl } from "@/lib/token";
+import { clientKey, rateLimit } from "@/lib/rate-limit";
 
 export const dynamic = "force-dynamic";
 
 const AGENTS_BASE = "https://agents.assemblyai.com";
+
+/** Five calls per five minutes per caller. A demo places one call at a time. */
+const CALL_LIMIT = 5;
+const CALL_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * The demo code is optional on purpose: unset, the route is open, which is what
+ * a judge following a link needs. Set it before posting the link anywhere
+ * public. This gates token minting, not the product.
+ */
+function codeAccepted(request: Request, body: { code?: unknown }): boolean {
+  const expected = process.env.ALOUD_DEMO_CODE;
+  if (!expected) return true;
+  const provided = request.headers.get("x-aloud-code") ?? (typeof body.code === "string" ? body.code : "");
+  return provided === expected;
+}
 
 async function ensureAgent(apiKey: string, origin: string, secret: string): Promise<string> {
   const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" };
@@ -45,12 +62,26 @@ async function ensureAgent(apiKey: string, origin: string, secret: string): Prom
   return id;
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   const apiKey = process.env.ASSEMBLYAI_API_KEY;
   const secret = process.env.ALOUD_LLM_SHARED_SECRET;
   const origin = process.env.NEXT_PUBLIC_APP_ORIGIN;
   if (!apiKey || !secret || !origin) {
     return Response.json({ error: "Server is not configured for calls" }, { status: 500 });
+  }
+
+  // A body is optional — the browser may post nothing at all.
+  const body = await request.json().catch(() => ({}));
+  if (!codeAccepted(request, body as { code?: unknown })) {
+    return Response.json({ error: "This demo needs an access code" }, { status: 403 });
+  }
+
+  const limited = rateLimit(clientKey(request), CALL_LIMIT, CALL_WINDOW_MS);
+  if (!limited.ok) {
+    return Response.json(
+      { error: "Too many calls started from here. Try again shortly." },
+      { status: 429, headers: { "Retry-After": String(limited.retryAfterSeconds) } },
+    );
   }
 
   try {

@@ -43,25 +43,24 @@ function textOf(content: Content): string {
 }
 
 /**
- * The pending utterance is the last sentinel-tagged user message that has not
- * yet been followed by an assistant turn. If the agent has already spoken since
- * it was typed, it is done and we must stay silent — otherwise every reply the
- * hearing party triggers would repeat the user's last sentence.
+ * The utterance the user typed for THIS reply.
  *
- * Known limitation: this only ever returns the LAST such message. If two
- * utterances are typed before the agent replies to the first, the earlier one
- * is silently never spoken — there is no queue. Fixing this depends on a design
- * not yet made (does the client enforce one-utterance-in-flight, or should this
- * route concatenate pending utterances?), so it is deliberately left as-is here.
- * Deferred to the client (Task 10) or a Path B design — see
- * docs/superpowers/specs/2026-09-22-aloud-design.md §3.2.
+ * It travels as `reply.create { instructions }` and was measured on 2026-09-22
+ * to arrive as the last `messages` entry, `role: "system"`, byte-identical
+ * (docs/research/gate-results-2026-09-22.md, G1 re-probe). Crucially the
+ * arrival is **one-shot**: it is present in its own turn's request body and
+ * absent from the next one. So there is no history to walk back through, no
+ * already-spoken utterance to guard against re-speaking, and no queue — a
+ * request either carries an utterance to say or it does not.
+ *
+ * The scan runs from the end and accepts any role, because the exact position
+ * and role are AssemblyAI's to change; the sentinel is ours. Nothing else in a
+ * request body can carry it: the agent's own system prompt never contains it,
+ * and assistant history holds the spoken text with the wrapper already removed.
  */
 function pendingUtterance(messages: Message[]) {
   for (let i = messages.length - 1; i >= 0; i--) {
-    const message = messages[i];
-    if (message.role === "assistant") return null;
-    if (message.role !== "user") continue;
-    const decoded = decodeOutbound(textOf(message.content ?? ""));
+    const decoded = decodeOutbound(textOf(messages[i].content ?? ""));
     if (decoded) return decoded;
   }
   return null;

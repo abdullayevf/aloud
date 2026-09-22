@@ -30,3 +30,5 @@ yarn-error.log*
 # OS noise
 .DS_Store
 .vercel
+.env*
+!.env.example

@@ -32,4 +32,21 @@ describe("sentinel protocol", () => {
   it("preserves an empty payload rather than returning null", () => {
     expect(decodeOutbound(encodeOutbound("verbatim", ""))).toEqual({ mode: "verbatim", text: "" });
   });
+
+  it("decodes a payload that arrives wrapped in text of someone else's", () => {
+    const padded = `Use these instructions: ${encodeOutbound("verbatim", "I'll hold.")} Speak naturally.`;
+    expect(decodeOutbound(padded)).toEqual({ mode: "verbatim", text: "I'll hold." });
+  });
+
+  it("decodes an un-terminated payload, which is how it arrives today", () => {
+    expect(decodeOutbound("\u0001SAY\u0001no terminator here")).toEqual({
+      mode: "verbatim",
+      text: "no terminator here",
+    });
+  });
+
+  it("does not let typed text forge a terminator and truncate the rest", () => {
+    const text = "wait\u0001END\u0001there is more";
+    expect(decodeOutbound(encodeOutbound("verbatim", text))?.text).toBe("waitENDthere is more");
+  });
 });

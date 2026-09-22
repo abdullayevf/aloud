@@ -21,15 +21,21 @@ Built for the **AssemblyAI Voice Agent Hackathon** (lablab.ai × AssemblyAI, 1�
 
 ## Status / stack
 
-Docs-only as of 2026-09-22 (day one). Planned stack: **Next.js 15 (App Router) + TypeScript (strict) + Tailwind + Vitest, deployed on Vercel.**
+**Next.js 15 (App Router) + TypeScript (strict) + Tailwind + Vitest, deployed on Vercel.** Scaffolded and live at `https://aloud-implementation.vercel.app`. Plan Tasks 1–5 are done and all five validation gates are closed; Tasks 6–13 (browser audio, ledger, relay client, screen, deletion, submission) are the remaining work.
 
-- `POST /api/call` ensures the stored agent exists and mints a short-lived Voice Agent token — the only place the real API key is touched.
+```
+npm test              vitest run
+npm run lint          eslint      (10 pre-existing errors: 8 in .claude/ tooling, 2 in lib/agent-config.test.ts)
+npm run build         next build
+npx vercel --prod     deploy; the project is linked, secrets live in Vercel env
+node scripts/gate-probe.mjs https://aloud-implementation.vercel.app [--idle]
+```
+
+- `POST /api/call` ensures the stored agent exists and mints a short-lived Voice Agent token — the only place the real API key is touched. Gated by an optional `ALOUD_DEMO_CODE` (unset = open, so a judge's link works) and a per-IP rate limit, because sessions bill on socket-open duration.
 - `POST /api/llm/v1/chat/completions` is **our own OpenAI-compatible endpoint**, registered as the agent's `llm`. In verbatim mode it runs no model and echoes the typed text. This is the product.
 - `POST /api/end` calls `DELETE /v1/sessions/{id}` on hangup.
 - The browser connects directly to `wss://agents.assemblyai.com/v1/ws?token=…`; no audio is proxied through the server.
-- **No datastore.** UI state is client-side and dies with the page.
-
-Replace this section with real dev/build/lint/test commands once the app is scaffolded (implementation plan Task 1).
+- **No datastore.** UI state is client-side and dies with the page. The per-IP rate limit is module memory, not shared state, and is documented as approximate rather than a security control.
 
 ## Architecture (planned)
 
@@ -53,9 +59,10 @@ Next.js on Vercel
 - **Verbatim is built, not prompted.** No model is asked to repeat the user's words; in verbatim mode no model runs at all. If anything ever routes typed text through an LLM "to tidy it up", the product's central claim is void. Spec §3.4.
 - **`llm` is a stored-agent field only.** It is not in the inline `session.update` schema. So the browser always connects with `{"agent_id": …}` as the first and only config message. `agent_id` beside any inline field raises `agent_id_not_first`.
 - **`base_url` must be public HTTPS, and it ends in `/v1`.** The agent calls `{base_url}/chat/completions`, so ours is `https://<host>/api/llm/v1` and the route is `app/api/llm/v1/chat/completions`. Getting this off by one path segment is a 404 that presents as *the agent silently never speaking*. Loopback and private hosts are rejected outright, so there is no localhost-only phase — deploy on day one.
-- **The text travels in band**, wrapped in a `\u0001SAY\u0001` / `\u0001ASSIST\u0001` sentinel, through AssemblyAI, and arrives in the chat-completions request body. That keeps the server stateless and holds no call content. AssemblyAI's own BYO-LLM reference server confirms the body carries `messages` with `user`/`assistant`/`tool` roles (spec §3.2); what is still unverified is only whether our injected `content` survives byte-identical. Fallback is a per-call agent with a delete-on-read store.
+- **The text travels in band as `reply.create { instructions }`**, wrapped in a `\u0001SAY\u0001` … `\u0001END\u0001` sentinel, and arrives as the **last `messages` entry with `role: "system"`**, byte-identical and **one-shot** (present in its own turn's body, gone from the next). Measured 2026-09-23; that is what keeps the server stateless, holds no call content, and makes a dropped or double-spoken utterance impossible on this path. **`conversation.message` does not work** — it is in the prose events reference and absent from the machine-readable API contract, and text sent that way never reaches a custom LLM's request body. Do not reintroduce it.
 - **`content` in a request message may be a string *or* an array of parts.** Read it through a `textOf()` helper or the sentinel is silently missed. The shared secret may arrive on `authorization` **or** `x-api-key`, with or without a `Bearer` prefix — accept all four shapes.
-- **⚠ The open risk is G2, not G1:** whether the agent will stay silent when our endpoint returns empty content. If it won't, it talks over the hearing party. Fallbacks in spec §3.2.
+- **All five validation gates are closed** (measured 2026-09-22/23, spec §3.2, evidence in `docs/research/gate-results-2026-09-22.md`). The agent does stay silent on empty content (G2); the echo is byte-identical end to end including a spoken phone number (G4); the extra hop costs ~29 ms (G3). Re-run with `node scripts/gate-probe.mjs https://<deployment>` after touching the agent config or the pass-through.
+- **The open risk is now the agent-visibility partition**, not the pass-through: an agent created from Vercel's network has been observed invisible to another network for 30+ minutes. `/api/call` needs retry-with-recreate on `agent_not_found` before demo day.
 - **The recording is deleted, not harvested.** `DELETE /v1/sessions/{id}` on hangup, shown on screen. The previous product in this repo built a post-call packet out of the recording; that is dead and must not return.
 - **Assistant mode is navigation only**, off by default, never self-enabling, and it never speaks in the user's name or answers for them. It exists because IVR menus are a documented barrier. If someone with lived experience says it should not exist, delete it.
 - **No tools.** Aloud declares `tools: []`. UI state comes from transcript events.
@@ -89,3 +96,5 @@ These exist because the previous product died of a false originality claim.
 - `session_expired` closes the socket with **no warning event first**. Run your own client-side timer.
 - In browsers, a pre-handshake failure surfaces only as close code **1006** with nothing readable.
 - LLM Gateway is **excluded** from the $50 of free AssemblyAI credits. Verbatim mode costs nothing extra; assistant mode bills from the first request.
+- The Voice Agent API calls our endpoint as **LiveKit Agents via the OpenAI Python SDK** (measured from captured headers, 2026-09-23). Two consequences: `x-stainless-read-timeout: 10.0` is a **hard 10-second budget** on our response, and `x-stainless-retry-count` means **retries happen** — on a relay a retry is the same sentence spoken twice. There is **no session identifier** on the request, in any header or field.
+- AssemblyAI **appends ~1.2 KB of its own boilerplate** to whatever `system_prompt` you configure. Yours is a prefix of what the model receives. Inert in verbatim mode; relevant to assistant mode. `instructions` content arrives clean, with nothing appended.

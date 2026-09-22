@@ -1,13 +1,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { POST } from "./route";
+import { resetRateLimits } from "@/lib/rate-limit";
 
 const ORIGINAL_ENV = { ...process.env };
 
+/** Distinct addresses keep the shared limiter from bleeding between tests. */
+function call(ip = "203.0.113.1", init: RequestInit = {}) {
+  return new Request("https://aloud.example/api/call", {
+    method: "POST",
+    headers: { "x-forwarded-for": ip, ...(init.headers ?? {}) },
+    ...init,
+  });
+}
+
 describe("POST /api/call — agent update failure", () => {
   beforeEach(() => {
+    resetRateLimits();
     process.env.ASSEMBLYAI_API_KEY = "test-api-key";
     process.env.ALOUD_LLM_SHARED_SECRET = "test-secret";
     process.env.NEXT_PUBLIC_APP_ORIGIN = "https://aloud.example";
+    delete process.env.ALOUD_DEMO_CODE;
   });
 
   afterEach(() => {
@@ -37,7 +49,7 @@ describe("POST /api/call — agent update failure", () => {
 
     vi.stubGlobal("fetch", fetchMock);
 
-    const response = await POST();
+    const response = await POST(call());
     const body = await response.json();
 
     // Must not return the 200 { token, agentId } success shape when the update failed.
@@ -48,5 +60,62 @@ describe("POST /api/call — agent update failure", () => {
     // failed carries our shared secret in its own body (see route.ts).
     expect(body.error).not.toMatch(/server error/i);
     expect(body.error).not.toMatch(/500/);
+  });
+});
+
+describe("POST /api/call — who is allowed to mint a token", () => {
+  beforeEach(() => {
+    resetRateLimits();
+    process.env.ASSEMBLYAI_API_KEY = "test-api-key";
+    process.env.ALOUD_LLM_SHARED_SECRET = "test-secret";
+    process.env.NEXT_PUBLIC_APP_ORIGIN = "https://aloud.example";
+    delete process.env.ALOUD_DEMO_CODE;
+    // Nothing below should reach AssemblyAI: each request is refused before it.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("upstream must not be called for a refused request");
+      }),
+    );
+  });
+
+  afterEach(() => {
+    process.env = { ...ORIGINAL_ENV };
+    vi.unstubAllGlobals();
+  });
+
+  it("refuses a caller without the demo code once one is configured", async () => {
+    process.env.ALOUD_DEMO_CODE = "open-sesame";
+    const response = await POST(call("203.0.113.2"));
+    expect(response.status).toBe(403);
+  });
+
+  it("accepts the demo code on a header", async () => {
+    process.env.ALOUD_DEMO_CODE = "open-sesame";
+    const response = await POST(call("203.0.113.3", { headers: { "x-aloud-code": "open-sesame" } }));
+    expect(response.status).not.toBe(403);
+  });
+
+  it("accepts the demo code in the body", async () => {
+    process.env.ALOUD_DEMO_CODE = "open-sesame";
+    const response = await POST(
+      call("203.0.113.4", {
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: "open-sesame" }),
+      }),
+    );
+    expect(response.status).not.toBe(403);
+  });
+
+  it("stays open when no demo code is configured, so a judge's link just works", async () => {
+    const response = await POST(call("203.0.113.5"));
+    expect(response.status).not.toBe(403);
+  });
+
+  it("rate-limits a caller minting tokens in a loop, and says when to retry", async () => {
+    for (let i = 0; i < 5; i++) await POST(call("203.0.113.6"));
+    const response = await POST(call("203.0.113.6"));
+    expect(response.status).toBe(429);
+    expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(0);
   });
 });

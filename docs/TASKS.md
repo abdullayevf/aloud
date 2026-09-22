@@ -8,10 +8,10 @@ Plan tasks referenced below are from [`superpowers/plans/2026-09-22-aloud-implem
 
 ## The shape of the week
 
-Two things must happen early or they wreck everything after them:
+Two things had to happen early or they would have wrecked everything after them. **Both are done**, and the second one earned its place:
 
-1. **Deploy on day one.** The custom LLM requires a public HTTPS `base_url`; private and loopback hosts are rejected. There is no localhost-only phase of this project.
-2. **Run the validation gates before building UI.** The whole design rests on five contract questions about what AssemblyAI sends our endpoint. They are answerable in an afternoon with an API key. If G1 fails, the server stops being stateless and a task gets added — better to know on day two than day six.
+1. **Deploy on day one.** The custom LLM requires a public HTTPS `base_url`; private and loopback hosts are rejected. There is no localhost-only phase of this project. ✅
+2. **Run the validation gates before building UI.** ✅ G1 failed on day one — the mechanism the design was built on does not exist for custom LLMs — and was re-probed and replaced the next morning. Finding that on day six, with the UI already written against it, would have cost the submission.
 
 ---
 
@@ -20,17 +20,12 @@ Two things must happen early or they wreck everything after them:
 ### Day 1 — Mon 22 Sep · pivot and documentation ✅
 Kill the previous product. Rebuild the research from primary sources. Write the PRD, the design spec and the implementation plan. **Done.**
 
-### Day 2 — Tue 23 Sep · scaffold, deploy, and the endpoint that is the product
-Plan **Tasks 1–3**: Next.js scaffold, `/api/call`, **a live Vercel URL**, the sentinel protocol, the OpenAI SSE encoder and `/api/llm/v1/chat/completions`.
+### Days 2–3 — done early, on 22–23 Sep ✅
+Plan **Tasks 1–5**: Next.js scaffold, `/api/call`, a live Vercel URL, the sentinel protocol, the OpenAI SSE encoder, `/api/llm/v1/chat/completions`, the stored agent with its custom `llm`, and **all five gates measured and closed**.
 
-*Done when:* `curl -N -X POST https://<deployment>/api/llm/v1/chat/completions` streams back text you typed into the request, byte for byte.
+The gates did not go to plan and that was the point of running them early. G1 failed as designed — `conversation.message` never reaches a custom LLM — and was re-probed and closed via `reply.create { instructions }` instead. G2, G3 and G4 all passed; G4 came back byte-identical. Evidence in `docs/research/gate-results-2026-09-22.md`; the day that was budgeted for this is now slack.
 
-### Day 3 — Wed 24 Sep · the agent, and the five gates
-Plan **Tasks 4–5**: the stored agent with its custom `llm`, then G1–G5 measured and written into the spec.
-
-**Answer G2 first.** G1 is largely settled by AssemblyAI's own reference implementation (spec §3.2); whether the agent stays silent on an empty reply is not settled by anything, and it is the one that decides whether the product talks over the person on the other end of the line.
-
-*Done when:* the spec's §3.2 carries real numbers and real logged request bodies, and you know whether the server can stay stateless. **This is the riskiest day. Do not let it slip.**
+**Two days of slack exist. Spend them on Task 9 and the partition risk, not on scope.**
 
 ### Day 4 — Thu 25 Sep · audio
 Plan **Tasks 6–7**: PCM codec, capture worklet, playback with a barge-in flush that actually stops scheduled sources.
@@ -66,9 +61,11 @@ Plan **Task 13** part two. Submit with hours to spare, then spend the remainder 
 
 | Risk | Likelihood | Impact | Mitigation | Trigger to act |
 |---|---|---|---|---|
-| **G2 fails** — the agent will not stay silent when nothing is pending | Medium | High — it babbles over the hearing party | Return `" "`; failing that, `output.volume: 0` for suppressed turns (volume is mutable) | Day 3. **This is now the top technical risk**: AssemblyAI's reference BYO-LLM server always returns text, so nothing in the public record says what an empty reply does. |
-| **G1 fails** — our injected `content` does not arrive byte-identical | Low — AssemblyAI's own reference server reads `body.messages` for `user`/`assistant`/`tool` roles (spec §3.2) | High — the server stops being stateless | Path B is already designed (spec §3.2): per-call agent, `base_url` with a unique path segment, 60-second delete-on-read store | Day 3. If it fails, add the Path B task before Task 9 and cut assistant mode if time is short. |
-| **Both G1 and G2 fail** | Low | Severe | Path C: one session per utterance using `greeting`, which is verbatim by documentation. Costs a reconnect gap in the captions. | Day 3. Decide the same day; do not carry the uncertainty. |
+| ~~**G2 fails**~~ | — | — | **CLOSED 2026-09-23.** The agent stays silent on empty content: `reply.create` with nothing pending produced no `transcript.agent` event. No volume trick needed. | — |
+| ~~**G1 fails**~~ | — | — | **CLOSED 2026-09-23**, via `reply.create { instructions }` rather than the `conversation.message` originally specified, which does not reach a custom LLM at all. Byte-identical, one-shot. Path B not built. | — |
+| ~~**Both G1 and G2 fail**~~ | — | — | **CLOSED.** Path C not needed. | — |
+| **The agent-visibility partition** — an agent created from Vercel's network is invisible to the user's | Medium — observed once, 30+ minutes, no convergence | High — the call never connects, and it looks like our bug | `/api/call` must treat `agent_not_found` as recoverable and recreate rather than reuse; client re-POSTs and reconnects with a fresh token | Task 9. **This is now the top technical risk.** |
+| **AssemblyAI retries a chat-completions request** and the sentence is spoken twice | Unknown — `x-stainless-retry-count` proves retries exist; nothing measured about what triggers one | Medium — unauthorised repetition on a relay | The ledger shows two spoken lines against one typed line, which is the honest surface. Measure before demo day if time allows. | Task 9 |
 | **`base_url` path is off by one segment** | Was live in the plan until 2026-09-22 | High — a 404 that looks exactly like the agent going mute | `base_url` ends in `/v1`; a unit test in Task 4 asserts the concatenated URL | Already fixed. Do not "simplify" it away. |
 | **A competitor lands the same product late** | Medium — 75 drafts were still unsubmitted on 2026-09-22 | Medium | The ledger and the deletion remain differentiators; name theirs in the submission rather than being caught by it | Day 8 re-scan |
 | **The custom-LLM hop adds real latency** | Low — verbatim returns immediately with no inference | Medium | Measure in G3 on day 3, not on day 8 | Day 3 |

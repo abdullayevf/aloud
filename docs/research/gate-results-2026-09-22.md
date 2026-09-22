@@ -205,3 +205,155 @@ Called shortly after that session's `session.ended`. No retry needed.
    resolved.
 4. **G4 is fully untested** — the phone-number-formatting question spec §3.2
    flags is still open.
+
+---
+
+# G1 re-probe — measured 2026-09-22 (second session)
+
+Concern 1 above asked whether *a different event or shape* delivers text into a
+BYO-LLM's request body. It does. `reply.create { instructions }` works, and the
+text arrives unaltered.
+
+**Method.** Two throwaway scripts, not committed (they depend on a third-party
+request bin and are of no further use once the answer is recorded). A throwaway
+stored agent's `llm.base_url` was pointed at a `webhook.site` bin configured to
+return a valid chat-completions SSE stream, so every reply completed normally
+**and the full request body and headers were captured verbatim** — which log
+scraping never showed. All probe text was synthetic; no real call content was
+involved. The bin was deleted (`204`) and both throwaway agents deleted at the
+end of the run.
+
+**Why a bin and not our own deployed route:** this workstation has no `vercel`
+CLI and the repo has no git remote, so no new route could be deployed to
+capture anything; and `.env.local` carries only the AssemblyAI key (under the
+name `ASSEMBLY_AI_API_KEY`), not `ALOUD_LLM_SHARED_SECRET`, so a probe agent
+pointed at the live `/api/llm/v1` would have drawn a `401` and been
+indistinguishable from a non-delivery.
+
+## What was tested, in one live session
+
+| Variant | Result |
+|---|---|
+| **A — `reply.create { instructions: <sentinel-wrapped text> }`** | **ARRIVED.** Delivered as the **last** element of `messages`, `role: "system"`, `content` **byte-identical**, no wrapping text added, `U+0001` intact. |
+| **B — mid-session `session.update { system_prompt: <text> }`** | **ARRIVED, and rejected as a mechanism.** It *replaces* the stored agent's `system_prompt` (the agent's own `BASELINESYSTEMPROMPT` was gone from every later request) and it is **sticky** — the injected text was still present two turns later. Sticky call content that also destroys the assistant-mode prompt is not usable. |
+| **C — `conversation.message { role: "user", content }`** | **ABSENT.** Independent confirmation of the first session's G1 failure, this time against a full captured body rather than a log excerpt. |
+
+**One-shot semantics confirmed.** The variant-A text was present in its own
+turn's request body and **gone from the next turn's**. Nothing accumulates,
+nothing is re-spoken, and an utterance cannot leak into a later reply.
+
+**Root cause of the `conversation.message` failure (verified 2026-09-22 by
+direct `curl` + `grep`, not a summariser):** `conversation.message` is
+documented in
+[`events-reference.md`](https://www.assemblyai.com/docs/voice-agents/voice-agent-api/events-reference.md)
+with a field table and an example, and occurs **zero times** in the 74 KB
+machine-readable AsyncAPI contract at
+[`api-spec/voice-agent-websocket.md`](https://www.assemblyai.com/docs/voice-agents/voice-agent-api/api-spec/voice-agent-websocket.md),
+which specifies all seven other client→server messages in full. `reply.create`
+*and its optional `instructions` field* are in that contract, typed, with an
+example. The most likely reading — **UNVERIFIED, inference not vendor
+statement** — is that `conversation.message` seeds AssemblyAI's own managed
+conversation state, which is not what gets assembled into a BYO-LLM's
+`messages` array. No claim is made here that the event is broken for its
+documented purpose.
+
+## Byte-identity under adversarial input
+
+Five utterances, one live session, each compared byte-for-byte against the
+captured `content`:
+
+| Case | Input | Result |
+|---|---|---|
+| 0 | `Yes — that's my number: 415-555-0134, ext. 22.` (em dash, typographic apostrophe) | IDENTICAL, 46/46 chars |
+| 1 | `I said "no". Don't change it. 50% off? £30 & €40.` (quotes, currency, ampersand) | IDENTICAL, 49/49 |
+| 2 | `line one\nline two\ttabbed` (newline, tab) | IDENTICAL, 24/24 |
+| 3 | `Ω émoji 🎧 ünïcode ①②③` (astral-plane emoji, combining accents) | IDENTICAL, 22/22 |
+| 4 | 917-character repeated sentence | IDENTICAL, 917/917 |
+
+All five arrived as the **last** message with `role: "system"`.
+**ALL BYTE-IDENTICAL: true.**
+
+## Incidental findings from the captured headers — these matter
+
+The request headers had never been captured before. They disclose the
+implementation behind the API:
+
+```
+user-agent:              LiveKit Agents/1.5.2 (python 3.13.14)
+x-stainless-lang:        python          (the OpenAI Python SDK)
+x-stainless-read-timeout: 10.0
+x-stainless-retry-count: 0
+authorization:           Bearer <llm.api_key>
+```
+
+1. **There is a 10-second read timeout on our endpoint.** Irrelevant to
+   verbatim mode (no inference, ~37 ms measured) but a hard ceiling on
+   assistant mode's LLM Gateway proxy, which must stream its first byte inside
+   it.
+2. **Retries exist** (`x-stainless-retry-count` is a counter). A slow or failed
+   response may be retried — on a relay that risks **the same utterance being
+   spoken twice**. Worth handling; not yet measured what triggers it.
+3. **No session identifier on the request**, in any header or body field. Header-based
+   correlation is therefore not available — the Path B fallback would genuinely
+   have needed a per-call agent to correlate. Moot now, but it closes the question.
+4. **AssemblyAI appends ~1.2 KB of its own boilerplate to `system_prompt`** —
+   instructions about speaking aloud, spelling identifiers digit-by-digit, and
+   tool-argument formatting. Our configured prompt is a *prefix* of what the
+   model actually receives. Inert in verbatim mode (no model runs); relevant to
+   assistant mode. `instructions` content, by contrast, arrives clean with
+   nothing appended.
+5. **The `greeting` appears as an `assistant` message** in later request bodies,
+   with a trailing space (`"Probe session. "`).
+6. `U+0001` survives JSON transport intact, so the sentinel encoding is sound.
+
+---
+
+# End-to-end run — measured 2026-09-23
+
+The probes above answered *which mechanism delivers*. This run answers *does the
+product work*: the real deployed `/api/llm/v1/chat/completions`, with the new
+parser, driven over a real WebSocket session by the committed
+`scripts/gate-probe.mjs` (rewritten for `reply.create { instructions }`; it used
+to test the dead `conversation.message` path).
+
+`node scripts/gate-probe.mjs https://aloud-implementation.vercel.app`
+
+## G3 — added latency, now measuring the right thing
+
+`reply.create` → first `reply.audio`, with **real echoed content** rather than
+the empty replies the first run was stuck with: **28 ms, 29 ms, 30 ms · mean
+29 ms.** Concern 3 above is closed. The custom-LLM hop is not a latency risk in
+verbatim mode, which is the expected result of running no model.
+
+## G4 — typed against spoken: byte-identical, three for three
+
+`transcript.agent.text` compared against the text sent:
+
+| Typed | Spoken back | Result |
+|---|---|---|
+| `I'd like to reschedule Thursday's appointment.` | identical | **byte-identical** |
+| `My number is 415 555 0134.` | identical | **byte-identical** |
+| `Yes — that's right, and please call back after five.` | identical | **byte-identical** |
+
+The phone-number case spec §3.2 flags by name came back unaltered — no
+digit-grouping change, no punctuation drift — and so did the em dash and the
+typographic apostrophes. The normalising comparison in spec §3.3 is therefore
+**belt-and-braces, not load-bearing**: on this evidence the raw strings already
+match. Keep the normalisation anyway; one unmeasured TTS path does not justify a
+ledger that reports a false mismatch.
+
+## G2 — re-confirmed under the new mechanism
+
+`node scripts/gate-probe.mjs … --idle` → `reply.create` with nothing pending
+produced `reply.started` … `reply.done` and **no `transcript.agent` event**.
+The agent stays silent when the hearing party speaks and nothing is typed.
+
+## What this leaves open
+
+- **The agent-visibility partition persists.** `GET /v1/agents` from this
+  workstation returned an empty list while `POST /api/call` on the deployment
+  returned `200`. Concern 2 above stands unchanged: `/api/call` needs
+  retry-with-recreate on `agent_not_found` before demo day.
+- **Retry behaviour is unmeasured.** `x-stainless-retry-count` proves retries
+  exist; nothing here establishes what triggers one, and on a relay a retry
+  means a sentence spoken twice.
