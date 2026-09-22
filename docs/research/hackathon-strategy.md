@@ -33,7 +33,7 @@ Aloud's latency story is functional in exactly the way they mean: the extra netw
 | Lever | Status on the Voice Agent API | How Aloud uses it |
 |---|---|---|
 | **`connect-your-own-llm`** | Documented, stored-agent only, streaming required, public HTTPS only | **The headline.** An endpoint that performs no inference is how verbatim stops being a promise. Almost nobody will register a custom LLM at all, and nobody will register one whose purpose is to *not* think. |
-| **`greeting` bypasses the LLM entirely** | Documented: the string goes straight to TTS | The relay announcement. It is the one verbatim path the API ships, and it is also the fallback design (Path C) if the custom-LLM route fails. |
+| **`greeting` bypasses the LLM entirely** | Documented: the string goes straight to TTS | The relay announcement. It is the one verbatim path the API ships. It was also the last-resort fallback (Path C) if the custom-LLM route failed — not needed: the custom-LLM route works, measured byte-identical end to end on 2026-09-23. |
 | **`DELETE /v1/sessions/{id}`** | Documented soft delete, `204` | A retention *feature*, not a compliance chore. The field's compliance entries all *assert* they are careful; this one shows the deletion on screen. |
 | Entity-aware turn detection via tool parameter hints | Documented, on by default | **Not used.** Aloud declares no tools. Noted here so nobody re-adds tools to get it. |
 | `transcription_mode` by call stage | `min_latency` / `balanced` / `max_accuracy`, mutable mid-session | Left at `balanced`. Captions are the accessibility surface and late captions are a defect. A relay is the one product where `max_accuracy` is the wrong instinct. |

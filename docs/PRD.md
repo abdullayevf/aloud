@@ -200,6 +200,6 @@ Decisions 1–4 below were **made by the assistant on 2026-09-22** under an expl
 2. **Does the agent ever speak *for* the user? — decided: no.** Verbatim is the only mode that speaks in the user's name. Assistant mode (§4.5) handles machines, identifies itself as an assistant, and never invents the user's answers. **This is the question to put to someone with lived experience**, and their answer overrides this one.
 3. **Demo scenario — decided:** rescheduling a clinic appointment; hearing party speaks English; the call opens on an IVR menu so assistant mode has an honest reason to exist.
 4. **Git history — decided: kept.** The two pre-pivot commits stay, and the pivot lands as an honest commit. A day-one pivot with its reasoning in the repo reads as judgment, not as noise. Because history was kept, the pre-pivot tree is an ancestor of `HEAD` and is recoverable without any backup ref; the temporary backup tags were deleted on 2026-09-22.
-5. **Repo directory name** — the working directory is being renamed to `aloud/` by the user. The assistant cannot rename the directory it is running in.
+5. ~~**Repo directory name**~~ — **done.** The working directory is `aloud/`, and the repo has a remote at `github.com/abdullayevf/aloud`.
 6. **Whether InnoCaption's AI Refine can be turned off** — unknown, and it sharpens or softens the §7 contrast. Check before the video is recorded.
 7. **Team size** — assumed solo; the implementation plan is sequential and independently reviewable.

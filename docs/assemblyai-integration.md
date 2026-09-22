@@ -666,7 +666,8 @@ Event details worth knowing:
 - **Field-name asymmetry:** `input.audio` carries audio in `audio`; `reply.audio` carries it in `data`.
 - `transcript.agent.delta` gives word-level text with `start_ms`/`end_ms` aligned to the reply audio — use it for captions that track playback.
 - `reply.done.status` is always present: `"completed"` or `"interrupted"`.
-- `reply.create { instructions? }` makes the agent speak without a user utterance. `conversation.message { role, content }` injects context without speaking.
+- `reply.create { instructions? }` makes the agent speak without a user utterance. With a **custom LLM**, `instructions` arrives as the **last `messages` entry, `role: "system"`, byte-identical and one-shot** (measured 2026-09-23). This is the supported way to hand caller-supplied text to your own endpoint.
+- ⚠ `conversation.message { role, content }` is documented as injecting context without speaking — **but it never reaches a custom LLM's request body.** Measured across 8 sessions, both roles, plain and sentinel-wrapped, with and without a delay before `reply.create`. It is absent from the machine-readable API contract (`api-spec/voice-agent-websocket.md`) while every other client→server message is specified there. Presumed to seed AssemblyAI's own managed conversation state only — UNVERIFIED, that is inference, not a vendor statement. Do not build on it with BYO-LLM.
 
 **Ending a session.** Send `session.end`, wait for `session.ended`, then close. **Do not just close the socket**: the server then holds the session for a 30-second `session.resume` grace window **and that window is billable**. `session.ended` carries `session_duration_seconds` and `audio_duration_seconds`. In a browser, also send `session.end` synchronously inside a `pagehide` handler (nothing async will finish).
 

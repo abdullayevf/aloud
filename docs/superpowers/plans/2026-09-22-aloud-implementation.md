@@ -935,7 +935,7 @@ git commit -m "feat: stored relay agent with custom llm and spoken relay greetin
 
 **Interfaces:**
 - Consumes: the deployed `/api/call` and `/api/llm` from Tasks 1–4.
-- Produces: recorded answers to G1–G5 in the spec, and — if G1 fails — a decision to build Path B in Task 9.
+- Produces: recorded answers to G1–G5 in the spec. (Outcome: all five closed, Path B not built — see the note at the top of this task.)
 
 - [ ] **Step 1: Write a probe that logs exactly what AssemblyAI sends us**
 
