@@ -81,7 +81,7 @@ Auth is `Authorization: <API_KEY>`; a `Bearer ` prefix is accepted and stripped 
   "output": { "format": { "encoding": "audio/pcm" }, "volume": 100 },
   "tools": [],
   "llm": [{
-    "base_url": "https://<deployment-host>/api/llm",
+    "base_url": "https://<deployment-host>/api/llm/v1",
     "model": "aloud-verbatim",
     "api_key": "<ALOUD_LLM_SHARED_SECRET>"
   }]
@@ -128,12 +128,28 @@ This is the design that makes the server **stateless**: no pending-utterance sto
 
 ### 3.2 Validation gates — run these before building on any of it
 
-Each is a contract question answerable in one sitting with an API key. **None is a research project. Run them first; the plan's Task 2 is nothing but these.**
+Each is a contract question answerable in one sitting with an API key. **None is a research project. Run them first; the plan's Task 5 is nothing but these.**
+
+#### What a reference implementation already settles (read 2026-09-22)
+
+AssemblyAI's own BYO-LLM demo server — [`dan-ince-aai/voice-agent-byo-llm-demo`](https://github.com/dan-ince-aai/voice-agent-byo-llm-demo), `server.mjs` — is a working custom-LLM endpoint written by an AssemblyAI engineer. Reading it collapses most of G1 from a guess to a documented convention. Verified against that source, not inferred:
+
+| Contract detail | What the reference implementation shows |
+|---|---|
+| **Path** | The server routes `POST /v1/chat/completions` and publishes ``base_url = `${TUNNEL}/v1` ``. So the agent calls **`{base_url}/chat/completions`** and `base_url` conventionally **ends in `/v1`**, exactly like the docs' `https://api.openai.com/v1` example. **This corrected a 404 in an earlier draft of this spec**, where `base_url` omitted `/v1` while the route included it. |
+| **Body carries the conversation** | Header comment: *"It sends the conversation as OpenAI chat completions and reads back streamed tokens, so anything that answers in that shape is a valid model."* The handler reads `body.messages`, searching it for the last `role: "user"` and the last `role: "assistant"`. |
+| **Message roles present** | `user`, `assistant`, and `tool`, plus `tool_calls` on assistant messages. |
+| **`content` may not be a string** | Its `textOf()` helper handles `content` as a string **or** as an array of parts with `.text`. Our handler must do the same or it will silently miss the sentinel. |
+| **`model` and `stream`** | `body.model` is the name the agent was published with; `body.stream !== false` is the streaming test. |
+| **Auth header** | `req.headers.authorization || req.headers['x-api-key']`, with a `Bearer ` prefix stripped. The author hedges across both header names, so we accept both. |
+| **Response shape** | `{ id, object: "chat.completion.chunk", created, model, choices: [{ index, delta, finish_reason }] }`, an opening `{role:"assistant", content:""}` delta, content deltas, a `finish_reason: "stop"` delta, then `data: [DONE]`. Identical to §3.1's design. |
+
+**This is a reference implementation, not a specification.** It is strong evidence about conventions, and it is still not a promise from the vendor. G1 stays on the list; what remains of it is narrower.
 
 | | Question | Decided fallback if it fails |
 |---|---|---|
-| **G1** | Does the body AssemblyAI POSTs to `/chat/completions` include the conversation messages, such that `conversation.message` content (or `reply.create.instructions`) arrives verbatim? And is the agent's `system_prompt` included as a system message — which is what assistant mode (§4.2) relies on when it proxies? | **Path B**: per-call stored agent whose `base_url` carries a unique path segment (`/api/llm/<callId>`); `POST /api/say/<callId>` parks the text in a 60-second, delete-on-read store; the handler reads it. Correlation solved by construction. Costs one agent create + delete per call and puts call content on our server for seconds — so it is the fallback, not the default. |
-| **G2** | Is an **empty** assistant message accepted when nothing is pending — i.e. can the agent stay silent when the hearing party speaks? | Return a single space. If TTS still vocalises, set `output.volume: 0` (mutable) for suppressed turns and restore it before a real one. If neither holds, **Path C**. |
+| **G1** *(narrowed)* | The body carries `messages` — settled above. What is **not** settled: does a `conversation.message {role:"user", content}` arrive with its `content` **byte-identical**, so the sentinel survives? And is the agent's `system_prompt` included as a system message, which assistant mode (§4.2) relies on when it proxies? | **Path B**: per-call stored agent whose `base_url` carries a unique path segment (`/api/llm/<callId>/v1` — it still has to end in `/v1`); `POST /api/say/<callId>` parks the text in a 60-second, delete-on-read store; the handler reads it. Correlation solved by construction. Costs one agent create + delete per call and puts call content on our server for seconds — so it is the fallback, not the default. |
+| **G2** ⚠ **now the top risk** | Is an **empty** assistant message accepted when nothing is pending — i.e. can the agent stay silent when the hearing party speaks? The reference implementation above always returns *something*, so it offers no evidence either way. Its opening `{role:"assistant", content:""}` delta is accepted, which is weak evidence that empty content parses; it says nothing about whether a reply with **only** empty content is tolerated or is spoken as an awkward pause. | Return a single space. If TTS still vocalises, set `output.volume: 0` (mutable) for suppressed turns and restore it before a real one. If neither holds, **Path C**. |
 | **G3** | Added latency of the extra hop, measured against the managed model. | Expected *lower* in verbatim mode — we return immediately, with no inference. If it is not, profile before redesigning. |
 | **G4** | Does `transcript.agent.text` reproduce the streamed text closely enough to diff, or does TTS normalisation alter it (numbers, punctuation, casing)? | Normalise both sides before comparison (§3.3) and show the raw pair on demand. A mismatch that is purely normalisation must not read as an alteration. |
 | **G5** | Does `DELETE /v1/sessions/{id}` succeed immediately after `session.ended`, or must artifacts exist first? | Retry with backoff for up to 10 s, then surface the failure honestly (§5.3). |

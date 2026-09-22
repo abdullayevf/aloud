@@ -477,6 +477,29 @@ describe("POST /api/llm/v1/chat/completions", () => {
     expect(res.status).toBe(401);
   });
 
+  it("accepts the key on x-api-key too, which is the other header the agent may use", async () => {
+    const res = await POST(
+      new Request("https://example.com/api/llm/v1/chat/completions", {
+        method: "POST",
+        headers: { "x-api-key": "test-secret", "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "aloud-verbatim",
+          stream: true,
+          messages: [{ role: "user", content: encodeOutbound("verbatim", "hello") }],
+        }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await body(res)).toContain(JSON.stringify("hello"));
+  });
+
+  it("reads content that arrives as an array of parts, not just a string", async () => {
+    const res = await POST(
+      request([{ role: "user", content: [{ text: encodeOutbound("verbatim", "parts form") }] }]),
+    );
+    expect(await body(res)).toContain(JSON.stringify("parts form"));
+  });
+
   it("streams the typed text back byte for byte", async () => {
     const res = await POST(
       request([{ role: "user", content: encodeOutbound("verbatim", "I'd like to reschedule.") }]),
@@ -539,13 +562,27 @@ const SSE_HEADERS = {
   Connection: "keep-alive",
 };
 
-interface Message { role: string; content?: string | null }
+type Content = string | { text?: string }[] | null;
+interface Message { role: string; content?: Content }
 
+/**
+ * AssemblyAI's own BYO-LLM reference server accepts the key on either header
+ * and strips a Bearer prefix. Mirror it: a 401 here presents as the agent
+ * silently never speaking, which is the worst thing to debug on a live call.
+ */
 function authorized(request: Request): boolean {
   const secret = process.env.ALOUD_LLM_SHARED_SECRET;
   if (!secret) return false;
-  const header = request.headers.get("authorization") ?? "";
-  return header.replace(/^Bearer\s+/i, "") === secret;
+  const header =
+    request.headers.get("authorization") ?? request.headers.get("x-api-key") ?? "";
+  return header.replace(/^Bearer\s+/i, "").trim() === secret;
+}
+
+/** `content` may arrive as a string or as an array of parts. Handle both or the sentinel is missed. */
+function textOf(content: Content): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.map((part) => part?.text ?? "").join("");
+  return "";
 }
 
 /**
@@ -559,7 +596,7 @@ function pendingUtterance(messages: Message[]) {
     const message = messages[i];
     if (message.role === "assistant") return null;
     if (message.role !== "user") continue;
-    const decoded = decodeOutbound(message.content ?? "");
+    const decoded = decodeOutbound(textOf(message.content ?? ""));
     if (decoded) return decoded;
   }
   return null;
@@ -619,7 +656,7 @@ async function proxyToGateway(
         stream: true,
         messages: (payload.messages ?? []).map((m) => ({
           role: m.role,
-          content: (m.content ?? "").replace(/\u0001[A-Z]+\u0001/g, ""),
+          content: textOf(m.content ?? "").replace(/\u0001[A-Z]+\u0001/g, ""),
         })),
       }),
     });
@@ -638,7 +675,7 @@ async function proxyToGateway(
 - [ ] **Step 8: Run the route tests**
 
 Run: `npm test -- app/api/llm/v1/chat/completions/route.test.ts`
-Expected: PASS, 5 tests.
+Expected: PASS, 7 tests.
 
 - [ ] **Step 9: Deploy and confirm the endpoint answers from the public internet**
 
@@ -684,8 +721,17 @@ const payload = () => buildAgentPayload("https://aloud.example", "s3cret") as an
 describe("buildAgentPayload", () => {
   it("points the custom llm at our own public https endpoint", () => {
     expect(payload().llm).toHaveLength(1);
-    expect(payload().llm[0].base_url).toBe("https://aloud.example/api/llm");
     expect(payload().llm[0].api_key).toBe("s3cret");
+  });
+
+  it("ends base_url in /v1, because the agent appends /chat/completions to it", () => {
+    // Our route lives at app/api/llm/v1/chat/completions. If base_url omits the
+    // /v1 the agent POSTs to /api/llm/chat/completions and gets a 404, which
+    // presents as the agent simply never speaking.
+    expect(payload().llm[0].base_url).toBe("https://aloud.example/api/llm/v1");
+    expect(`${payload().llm[0].base_url}/chat/completions`).toBe(
+      "https://aloud.example/api/llm/v1/chat/completions",
+    );
   });
 
   it("refuses a non-https or loopback origin, which the API rejects anyway", () => {
@@ -769,7 +815,11 @@ export function buildAgentPayload(origin: string, sharedSecret: string) {
     },
     output: { format: { encoding: "audio/pcm" }, volume: 100 },
     tools: [],
-    llm: [{ base_url: `${origin}/api/llm`, model: "aloud-verbatim", api_key: sharedSecret }],
+    // The agent calls `{base_url}/chat/completions`, and base_url conventionally
+    // ends in /v1 (the docs' example is https://api.openai.com/v1, and
+    // AssemblyAI's own BYO-LLM demo publishes `${TUNNEL}/v1`). Dropping the /v1
+    // here while the route keeps it is a 404 that looks like the agent going mute.
+    llm: [{ base_url: `${origin}/api/llm/v1`, model: "aloud-verbatim", api_key: sharedSecret }],
   };
 }
 ```
@@ -777,7 +827,7 @@ export function buildAgentPayload(origin: string, sharedSecret: string) {
 - [ ] **Step 4: Run the tests**
 
 Run: `npm test -- lib/agent-config.test.ts`
-Expected: PASS, 7 tests.
+Expected: PASS, 8 tests.
 
 - [ ] **Step 5: Teach `/api/call` to ensure the agent exists**
 
@@ -946,7 +996,7 @@ Run: `node scripts/gate-probe.mjs https://<your-deployment>` and read the Vercel
 
 **G1 — does the request body carry our message?** Look at the `[gate-probe] body` log line.
 - If `messages` contains `"\u0001SAY\u0001Testing one two three…"`: **G1 PASSES.** The design in spec §3 stands.
-- If it does not: **G1 FAILS.** Build Path B (spec §3.2): per-call agent with `base_url` = `${origin}/api/llm/<callId>`, plus `POST /api/say/<callId>` holding the text for ≤60 s, delete-on-read. Add it as a task before Task 9 and say so in the spec.
+- If it does not: **G1 FAILS.** Build Path B (spec §3.2): per-call agent with `base_url` = `${origin}/api/llm/<callId>/v1` (the `/v1` suffix is not optional — the agent appends `/chat/completions` to it), route at `app/api/llm/[callId]/v1/chat/completions/route.ts`, plus `POST /api/say/<callId>` holding the text for ≤60 s, delete-on-read. Add it as a task before Task 9 and say so in the spec.
 
 - [ ] **Step 4: Answer G2**
 

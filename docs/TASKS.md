@@ -28,6 +28,8 @@ Plan **Tasks 1–3**: Next.js scaffold, `/api/call`, **a live Vercel URL**, the 
 ### Day 3 — Wed 24 Sep · the agent, and the five gates
 Plan **Tasks 4–5**: the stored agent with its custom `llm`, then G1–G5 measured and written into the spec.
 
+**Answer G2 first.** G1 is largely settled by AssemblyAI's own reference implementation (spec §3.2); whether the agent stays silent on an empty reply is not settled by anything, and it is the one that decides whether the product talks over the person on the other end of the line.
+
 *Done when:* the spec's §3.2 carries real numbers and real logged request bodies, and you know whether the server can stay stateless. **This is the riskiest day. Do not let it slip.**
 
 ### Day 4 — Thu 25 Sep · audio
@@ -64,9 +66,10 @@ Plan **Task 13** part two. Submit with hours to spare, then spend the remainder 
 
 | Risk | Likelihood | Impact | Mitigation | Trigger to act |
 |---|---|---|---|---|
-| **G1 fails** — the typed text does not reach our endpoint in the request body | Medium | High — the server stops being stateless | Path B is already designed (spec §3.2): per-call agent, `base_url` with a unique path segment, 60-second delete-on-read store | Day 3. If it fails, add the Path B task before Task 9 and cut assistant mode if time is short. |
-| **G2 fails** — the agent will not stay silent when nothing is pending | Medium | High — it babbles over the hearing party | Return `" "`; failing that, `output.volume: 0` for suppressed turns (volume is mutable) | Day 3 |
+| **G2 fails** — the agent will not stay silent when nothing is pending | Medium | High — it babbles over the hearing party | Return `" "`; failing that, `output.volume: 0` for suppressed turns (volume is mutable) | Day 3. **This is now the top technical risk**: AssemblyAI's reference BYO-LLM server always returns text, so nothing in the public record says what an empty reply does. |
+| **G1 fails** — our injected `content` does not arrive byte-identical | Low — AssemblyAI's own reference server reads `body.messages` for `user`/`assistant`/`tool` roles (spec §3.2) | High — the server stops being stateless | Path B is already designed (spec §3.2): per-call agent, `base_url` with a unique path segment, 60-second delete-on-read store | Day 3. If it fails, add the Path B task before Task 9 and cut assistant mode if time is short. |
 | **Both G1 and G2 fail** | Low | Severe | Path C: one session per utterance using `greeting`, which is verbatim by documentation. Costs a reconnect gap in the captions. | Day 3. Decide the same day; do not carry the uncertainty. |
+| **`base_url` path is off by one segment** | Was live in the plan until 2026-09-22 | High — a 404 that looks exactly like the agent going mute | `base_url` ends in `/v1`; a unit test in Task 4 asserts the concatenated URL | Already fixed. Do not "simplify" it away. |
 | **A competitor lands the same product late** | Medium — 75 drafts were still unsubmitted on 2026-09-22 | Medium | The ledger and the deletion remain differentiators; name theirs in the submission rather than being caught by it | Day 8 re-scan |
 | **The custom-LLM hop adds real latency** | Low — verbatim returns immediately with no inference | Medium | Measure in G3 on day 3, not on day 8 | Day 3 |
 | **Firefox echo cancellation dies** and the agent interrupts itself | Medium — it is the single most common bug in this stack | High on camera | `grep -rn "sampleRate" app lib public` must only find the worklet and `ctx.sampleRate` | Day 7 |
