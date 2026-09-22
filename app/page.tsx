@@ -19,6 +19,7 @@ export default function Page() {
   const [utterances, setUtterances] = useState<Utterance[]>([]);
   const [mode, setMode] = useState<RelayMode>("verbatim");
   const [live, setLive] = useState(false);
+  const [connecting, setConnecting] = useState(false);
 
   const client = useRef<RelayClient | null>(null);
   const capture = useRef<MicCapture | null>(null);
@@ -28,6 +29,8 @@ export default function Page() {
   }, []);
 
   async function startCall() {
+    if (connecting || live) return; // no second connection attempt while one is in flight
+    setConnecting(true);
     setError(null);
 
     const fetchCredentials: CredentialsFetcher = async (recreate) => {
@@ -65,16 +68,30 @@ export default function Page() {
         player,
       );
     } catch (err) {
+      // Nothing connected — don't leak the context/player this attempt created.
+      player.close();
+      ctx.close();
       setError(err instanceof Error ? err.message : "Could not start the call");
+      setConnecting(false);
       return;
     }
     client.current = relay;
 
-    const mic = new MicCapture(ctx);
-    // sendAudio is a no-op before session.ready — audio sent earlier is discarded.
-    await mic.start((audio) => relay.sendAudio(audio));
-    capture.current = mic;
-    setLive(true);
+    try {
+      const mic = new MicCapture(ctx);
+      // sendAudio is a no-op before session.ready — audio sent earlier is discarded.
+      await mic.start((audio) => relay.sendAudio(audio));
+      capture.current = mic;
+      setLive(true);
+    } catch (err) {
+      // The socket connected but the mic failed (e.g. permission denied) —
+      // don't leave a live, billing session with no way to hang it up.
+      client.current = null;
+      await relay.hangUp();
+      setError(err instanceof Error ? err.message : "Could not access the microphone");
+    } finally {
+      setConnecting(false);
+    }
   }
 
   async function hangUp() {
@@ -115,9 +132,10 @@ export default function Page() {
       {!live ? (
         <button
           onClick={startCall}
-          className="self-start rounded-lg bg-emerald-500 px-5 py-3 font-semibold text-slate-900"
+          disabled={connecting}
+          className="self-start rounded-lg bg-emerald-500 px-5 py-3 font-semibold text-slate-900 disabled:opacity-60"
         >
-          Start a call
+          {connecting ? "Connecting…" : "Start a call"}
         </button>
       ) : (
         <button
