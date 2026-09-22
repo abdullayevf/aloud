@@ -86,4 +86,30 @@ describe("POST /api/llm/v1/chat/completions", () => {
     );
     expect(await body(res)).not.toMatch(/"content":"[^"]+"/);
   });
+
+  it("stays silent instead of throwing on a malformed or absent body", async () => {
+    const malformed = new Request("https://example.com/api/llm/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: "Bearer test-secret", "Content-Type": "application/json" },
+      body: "not json",
+    });
+    const res = await POST(malformed);
+    expect(res.status).toBe(200);
+    const text = await body(res);
+    expect(text).toContain("[DONE]");
+    expect(text).not.toMatch(/"content":"[^"]+"/);
+  });
+
+  it("stays silent instead of throwing when the body is literal null", async () => {
+    const nullBody = new Request("https://example.com/api/llm/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: "Bearer test-secret", "Content-Type": "application/json" },
+      body: "null",
+    });
+    const res = await POST(nullBody);
+    expect(res.status).toBe(200);
+    const text = await body(res);
+    expect(text).toContain("[DONE]");
+    expect(text).not.toMatch(/"content":"[^"]+"/);
+  });
 });

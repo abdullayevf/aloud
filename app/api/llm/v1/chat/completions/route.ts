@@ -67,11 +67,22 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const payload = (await request.json()) as { model?: string; messages?: Message[] };
-  const model = payload.model ?? "aloud-verbatim";
   const id = `aloud-${crypto.randomUUID()}`;
   const created = Math.floor(Date.now() / 1000);
 
+  let payload: { model?: string; messages?: Message[] };
+  try {
+    const parsed: unknown = await request.json();
+    if (typeof parsed !== "object" || parsed === null) throw new Error("payload is not an object");
+    payload = parsed as { model?: string; messages?: Message[] };
+  } catch {
+    // Malformed or absent body. Nothing to say — same "stay silent" behavior
+    // as the no-pending-utterance case, never a bare 500 that leaves the
+    // agent with no well-formed stream to fall back on (G2).
+    return stream(buildVerbatimSSE("", "aloud-verbatim", id, created));
+  }
+
+  const model = payload.model ?? "aloud-verbatim";
   const pending = pendingUtterance(payload.messages ?? []);
 
   // Nothing to say. Silence is the correct output for a relay with no pending
