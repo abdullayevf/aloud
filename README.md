@@ -82,4 +82,4 @@ It is also not written by someone who needs it. The open questions in [`docs/PRD
 
 ## Licence
 
-MIT, as the default for a hackathon entry that judges must be able to read and run. Add the `LICENSE` file before the repo is made public.
+[MIT](LICENSE), the default for a hackathon entry that judges must be able to read and run.

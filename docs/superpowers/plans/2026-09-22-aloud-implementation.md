@@ -66,6 +66,7 @@ The custom LLM requires a public HTTPS `base_url`, so this project has no localh
 
 **Files:**
 - Create: `package.json`, `tsconfig.json`, `next.config.ts`, `vitest.config.ts`, `.env.example`
+- Modify: `.gitignore` — **it already exists and already covers `.env*`.** `create-next-app` will not overwrite it. Do not replace it with the generated one.
 - Create: `app/layout.tsx`, `app/globals.css`, `app/page.tsx`
 - Create: `lib/token.ts`, `app/api/call/route.ts`
 - Test: `lib/token.test.ts`
@@ -208,7 +209,12 @@ Then set `ASSEMBLYAI_API_KEY`, `ALOUD_LLM_SHARED_SECRET` (any long random string
 Run: `curl -s -X POST https://<your-deployment>/api/call`
 Expected: `{"token":"..."}`.
 
-- [ ] **Step 11: Confirm `.gitignore` covers `.env*.local`, then commit**
+- [ ] **Step 11: Confirm no secret is staged, then commit**
+
+The repo's `.gitignore` already covers `.env`, `.env.local` and `.env.*.local`. Verify it survived the scaffold, and verify nothing holding a key is staged:
+
+Run: `git status --porcelain | grep -i env` and `git check-ignore -v .env.local`
+Expected: only `.env.example` appears in the first; the second prints the matching `.gitignore` rule. If `.env.local` is **not** ignored, stop and fix `.gitignore` before committing.
 
 ```bash
 git add -A
@@ -893,7 +899,8 @@ Deploy: `npx vercel --prod`
 
 ```js
 // scripts/gate-probe.mjs
-// Node 20+. Usage: node scripts/gate-probe.mjs https://<deployment>
+// Node 22+ (needs a global WebSocket — it is only stable from Node 21).
+// Usage: node scripts/gate-probe.mjs https://<deployment>
 const origin = process.argv[2];
 if (!origin) throw new Error("usage: node scripts/gate-probe.mjs https://<deployment>");
 
@@ -1611,6 +1618,25 @@ describe("RelayClient", () => {
     expect(handlers.onSpoken).toHaveBeenCalledWith("hello", true);
   });
 
+  it("drops microphone audio until session.ready, because early audio is discarded", () => {
+    const { c } = client();
+    void c.connect();
+    FakeSocket.last.onopen?.();
+    FakeSocket.last.sent.length = 0;
+    c.sendAudio("AAAA");
+    expect(FakeSocket.last.sent).toEqual([]);
+  });
+
+  it("streams microphone audio in `audio`, not `data`, once ready", () => {
+    const { c } = client();
+    void c.connect();
+    FakeSocket.last.onopen?.();
+    FakeSocket.last.emit({ type: "session.ready", session_id: "sess_1" });
+    FakeSocket.last.sent.length = 0;
+    c.sendAudio("AAAA");
+    expect(JSON.parse(FakeSocket.last.sent[0])).toEqual({ type: "input.audio", audio: "AAAA" });
+  });
+
   it("ends with session.end and waits for session.ended before closing", async () => {
     const { c } = client();
     void c.connect();
@@ -1724,6 +1750,12 @@ export class RelayClient {
     }
   }
 
+  /** Streams one base64 PCM16 chunk. No-op before session.ready — early audio is discarded. */
+  sendAudio(base64: string): void {
+    if (!this.sessionId) return;
+    this.send({ type: "input.audio", audio: base64 });
+  }
+
   /** Returns the utterance id the caller should hand to the ledger. */
   say(text: string, mode: RelayMode): string {
     const id = crypto.randomUUID();
@@ -1753,7 +1785,7 @@ export class RelayClient {
 - [ ] **Step 4: Run the tests**
 
 Run: `npm test -- lib/relay-client.test.ts`
-Expected: PASS, 7 tests.
+Expected: PASS, 9 tests.
 
 - [ ] **Step 5: Commit**
 
@@ -2036,7 +2068,6 @@ export default function Page() {
 
   const client = useRef<RelayClient | null>(null);
   const capture = useRef<MicCapture | null>(null);
-  const pendingId = useRef<string | null>(null);
 
   const push = useCallback((event: LedgerEvent) => {
     setUtterances((state) => ledgerReducer(state, event));
@@ -2071,13 +2102,8 @@ export default function Page() {
     client.current = relay;
 
     const mic = new MicCapture(ctx);
-    await mic.start((audio) => {
-      // Never before session.ready: audio sent earlier is discarded.
-      if (relay.sessionId) {
-        (relay as unknown as { send(m: unknown): void });
-        relay["send"]?.({ type: "input.audio", audio });
-      }
-    });
+    // sendAudio is a no-op before session.ready — audio sent earlier is discarded.
+    await mic.start((audio) => relay.sendAudio(audio));
     capture.current = mic;
     setLive(true);
   }
@@ -2142,7 +2168,6 @@ export default function Page() {
             onModeChange={setMode}
             onSend={(text, sendMode) => {
               const id = client.current!.say(text, sendMode);
-              pendingId.current = id;
               push({ type: "typed", id, text, mode: sendMode });
             }}
           />
@@ -2154,21 +2179,7 @@ export default function Page() {
 }
 ```
 
-- [ ] **Step 9: Expose `send` properly rather than reaching into the class**
-
-Replace the bracket access in Step 8 by adding a public method to `lib/relay-client.ts`:
-
-```ts
-  /** Streams one base64 PCM16 chunk. No-op before session.ready — early audio is discarded. */
-  sendAudio(base64: string): void {
-    if (!this.sessionId) return;
-    this.send({ type: "input.audio", audio: base64 });
-  }
-```
-
-and in `app/page.tsx` replace the mic callback body with `relay.sendAudio(audio);`.
-
-- [ ] **Step 10: Run the full suite and commit**
+- [ ] **Step 9: Run the full suite and commit**
 
 Run: `npm test`
 Expected: PASS, all tests.
@@ -2418,4 +2429,4 @@ git commit -m "docs: submission assets, copy, and the final leaderboard re-scan"
 
 **Type consistency.** `RelayMode` is defined once in `lib/sentinel.ts` and imported by `lib/ledger.ts`, `lib/relay-client.ts` and the components. `Utterance` and `LedgerEvent` are defined once in `lib/ledger.ts`. `RelayClient.say()` returns the id the ledger uses. `ReplyPlayer` exposes exactly `enqueue`/`flush`/`close`, which is what `relay-client.test.ts` fakes. `/api/call` returns `{ token, agentId }` in Task 4 and is consumed with those names in Task 10. `/api/end` returns `{ deleted, at, sessionId }` in Task 11 and is read with those names in Task 10.
 
-**One known ordering dependency:** Task 10 Step 8 calls `relay.sendAudio`, which Step 9 adds. Steps 8 and 9 are in the same task deliberately — the page cannot stream audio until both land.
+**No forward references.** Every symbol a task uses is defined in that task or an earlier one. `RelayClient.sendAudio` is defined and tested in Task 9 and consumed in Task 10; `ReplyPlayer` is defined in Task 7 and faked in Task 9's tests against exactly the three methods it exposes.

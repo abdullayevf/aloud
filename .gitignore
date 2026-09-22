@@ -1,2 +1,23 @@
+# Secrets. ASSEMBLYAI_API_KEY and ALOUD_LLM_SHARED_SECRET live here and must
+# never be committed. create-next-app does NOT overwrite an existing .gitignore,
+# so these lines are set up before scaffolding rather than after.
+.env
+.env.local
+.env.*.local
+
+# Node / Next.js / Vercel
+node_modules/
+.next/
+out/
+.vercel/
+*.tsbuildinfo
+next-env.d.ts
+
+# Test and build output
+coverage/
+
 # graft's local graph cache — regenerable, not committed (run `graft build`).
 /graft/
+
+# OS noise
+.DS_Store
