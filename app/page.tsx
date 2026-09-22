@@ -1,69 +1,148 @@
-import Image from "next/image";
+"use client";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { CaptionPane } from "./components/CaptionPane";
+import { Composer } from "./components/Composer";
+import { Ledger } from "./components/Ledger";
+import { StatusBar } from "./components/StatusBar";
+import { MicCapture } from "@/lib/audio/capture";
+import { ReplyPlayer } from "@/lib/audio/playback";
+import { connectWithRecovery, type CredentialsFetcher, type RelayClient } from "@/lib/relay-client";
+import { ledgerReducer, type LedgerEvent, type Utterance } from "@/lib/ledger";
+import type { RelayMode } from "@/lib/sentinel";
 
-export default function Home() {
+export default function Page() {
+  const [status, setStatus] = useState("not connected");
+  const [error, setError] = useState<string | null>(null);
+  const [deletion, setDeletion] = useState<string | null>(null);
+  const [finals, setFinals] = useState<string[]>([]);
+  const [partial, setPartial] = useState("");
+  const [utterances, setUtterances] = useState<Utterance[]>([]);
+  const [mode, setMode] = useState<RelayMode>("verbatim");
+  const [live, setLive] = useState(false);
+
+  const client = useRef<RelayClient | null>(null);
+  const capture = useRef<MicCapture | null>(null);
+
+  const push = useCallback((event: LedgerEvent) => {
+    setUtterances((state) => ledgerReducer(state, event));
+  }, []);
+
+  async function startCall() {
+    setError(null);
+
+    const fetchCredentials: CredentialsFetcher = async (recreate) => {
+      const response = await fetch("/api/call", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(recreate ? { recreate: true } : {}),
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(typeof body.error === "string" ? body.error : "Could not start the call");
+      }
+      return response.json();
+    };
+
+    // NEVER pass sampleRate here. Firefox loses echo cancellation; Safari garbles.
+    const ctx = new AudioContext();
+    await ctx.resume();
+    const player = new ReplyPlayer(ctx);
+
+    let relay: RelayClient;
+    try {
+      relay = await connectWithRecovery(
+        fetchCredentials,
+        {
+          onCaption: setPartial,
+          onCaptionFinal: (text) => {
+            setFinals((f) => [...f, text]);
+            setPartial("");
+          },
+          onSpoken: (text, interrupted) => push({ type: "spoken", text, interrupted }),
+          onStatus: setStatus,
+          onError: setError,
+        },
+        player,
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not start the call");
+      return;
+    }
+    client.current = relay;
+
+    const mic = new MicCapture(ctx);
+    // sendAudio is a no-op before session.ready — audio sent earlier is discarded.
+    await mic.start((audio) => relay.sendAudio(audio));
+    capture.current = mic;
+    setLive(true);
+  }
+
+  async function hangUp() {
+    const relay = client.current;
+    capture.current?.stop();
+    await relay?.hangUp();
+    setLive(false);
+
+    if (relay?.sessionId) {
+      const response = await fetch("/api/end", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: relay.sessionId }),
+      });
+      const result = await response.json();
+      setDeletion(
+        result.deleted
+          ? `Recording deleted — ${relay.sessionId} at ${new Date(result.at).toLocaleTimeString()}`
+          : `Could not confirm deletion. Session ${relay.sessionId} may still be retained.`,
+      );
+    }
+  }
+
+  useEffect(() => {
+    const onHide = () => {
+      // Nothing async survives a closing tab; sendBeacon does.
+      const id = client.current?.sessionId;
+      if (id) navigator.sendBeacon("/api/end", JSON.stringify({ sessionId: id }));
+    };
+    window.addEventListener("pagehide", onHide);
+    return () => window.removeEventListener("pagehide", onHide);
+  }, []);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert h-5 w-[100px]"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the{" "}
-            <code className="rounded bg-black/[.06] px-1.5 py-0.5 font-mono text-[0.9em] dark:bg-white/[.08]">
-              page.tsx
-            </code>{" "}
-            file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <main className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
+      <StatusBar status={status} deletion={deletion} error={error} />
+
+      {!live ? (
+        <button
+          onClick={startCall}
+          className="self-start rounded-lg bg-emerald-500 px-5 py-3 font-semibold text-slate-900"
+        >
+          Start a call
+        </button>
+      ) : (
+        <button
+          onClick={hangUp}
+          className="self-start rounded-lg bg-rose-500 px-5 py-3 font-semibold text-slate-50"
+        >
+          Hang up and delete the recording
+        </button>
+      )}
+
+      <div className="grid gap-8 md:grid-cols-2">
+        <CaptionPane finals={finals} partial={partial} />
+        <div className="flex flex-col gap-6">
+          <Composer
+            disabled={!live}
+            mode={mode}
+            onModeChange={setMode}
+            onSend={(text, sendMode) => {
+              const id = client.current!.say(text, sendMode);
+              push({ type: "typed", id, text, mode: sendMode });
+            }}
+          />
+          <Ledger utterances={utterances} />
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert h-[14px] w-4"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+      </div>
+    </main>
   );
 }
