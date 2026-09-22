@@ -358,6 +358,54 @@ The agent stays silent when the hearing party speaks and nothing is typed.
   (`recreate: true` forces a fresh agent instead of handing back the same
   unreachable id); the client half, retrying on `agent_not_found` with a fresh
   single-use token, is Task 9 and is the top remaining technical risk.
-- **Retry behaviour is unmeasured.** `x-stainless-retry-count` proves retries
-  exist; nothing here establishes what triggers one, and on a relay a retry
-  means a sentence spoken twice.
+---
+
+# Retry behaviour — measured 2026-09-23
+
+The question: `x-stainless-retry-count` proves AssemblyAI's client retries, so
+**can a retry make the agent speak the same sentence twice?** On a relay that
+would be unauthorised words in the user's name, so it was worth forcing rather
+than leaving as a known unknown.
+
+**Method.** A temporary `app/api/llm-probe/v1/chat/completions` route, deployed
+to production, choosing its behaviour from a mode prefix inside the sentinel and
+from the incoming `x-stainless-retry-count` — so every decision derives from the
+request and the route stays stateless. Four scenarios, each in its own session,
+driven by a throwaway agent pointed at the probe route. The real agent was never
+pointed at it. Both the route and its script were deleted after the run and the
+deletion confirmed (`404`).
+
+| Scenario | What the endpoint did | Attempts seen | Spoken |
+|---|---|---|---|
+| **FAILFIRST** | `500` on attempt 0, success after | 0, 1 | **once** — `"first scenario on attempt 1"` |
+| **FAILALWAYS** | `500` on every attempt | 0, 1, 2 — repeatedly | **not at all**, gave up after ~13 s |
+| **SLOWFIRST** | hung 13 s on attempt 0, past the 10 s read timeout | 0, 1 | **once** — `"third scenario on attempt 1"` |
+| **PARTIAL** | streamed the content, then killed the stream mid-flight | **0 only** | **once** — `"fourth scenario"` |
+
+## What this settles
+
+1. **Retries are real and confirmed**, not just implied by a header: attempt 1
+   succeeded and said so in its own output.
+2. **Both a `5xx` and a read timeout past 10 s trigger one.**
+3. **The cap is 2 retries — 3 attempts — then it gives up.** Attempt values
+   never exceeded 2.
+4. **A mid-stream failure after content was delivered triggers no retry at
+   all** (PARTIAL logged attempt 0 and nothing else). This is the case that
+   could have caused double-speak, and it does not.
+5. **No scenario spoke the sentence more than once.** Every outcome was exactly
+   once, or silence. Silence is the safe failure for a relay, and total failure
+   produces exactly that.
+
+**Why it is safe, structurally:** the retries all happen *before* any audio is
+committed to the line, one `reply.create` yields one spoken reply, and our
+endpoint is idempotent by construction — a retried request carries the same
+sentinel and therefore produces the same text. Nothing needs to be built to
+defend against this.
+
+**One caveat on the counts.** The log feed returned each line an even number of
+times (2× for three scenarios, 8× for FAILALWAYS), so the absolute counts are
+read as relative. FAILALWAYS's higher multiple is consistent with an outer
+retry layer above the SDK's own three attempts — it would explain the ~13 s
+before it gave up — but that reading is **UNVERIFIED**. What is verified is the
+attempt-number ceiling of 2 and, more importantly, that nothing was ever spoken
+twice.
