@@ -350,10 +350,14 @@ The agent stays silent when the hearing party speaks and nothing is typed.
 
 ## What this leaves open
 
-- **The agent-visibility partition persists.** `GET /v1/agents` from this
-  workstation returned an empty list while `POST /api/call` on the deployment
-  returned `200`. Concern 2 above stands unchanged: `/api/call` needs
-  retry-with-recreate on `agent_not_found` before demo day.
+- **The agent-visibility partition persists, and is now observed on two
+  separate days.** On 2026-09-23, `POST /api/call { "recreate": true }` returned
+  `agent_95a06b99…` from the deployment, and `GET /v1/agents` from this
+  workstation — same account, same key, moments later — returned an **empty
+  list**. This is no longer a one-off fluke. The server half of the fix shipped
+  (`recreate: true` forces a fresh agent instead of handing back the same
+  unreachable id); the client half, retrying on `agent_not_found` with a fresh
+  single-use token, is Task 9 and is the top remaining technical risk.
 - **Retry behaviour is unmeasured.** `x-stainless-retry-count` proves retries
   exist; nothing here establishes what triggers one, and on a relay a retry
   means a sentence spoken twice.
