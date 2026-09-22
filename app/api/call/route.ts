@@ -22,12 +22,30 @@ function codeAccepted(request: Request, body: { code?: unknown }): boolean {
   return provided === expected;
 }
 
-async function ensureAgent(apiKey: string, origin: string, secret: string): Promise<string> {
+/**
+ * `recreate` skips the reuse path and forces a fresh agent.
+ *
+ * It exists because a stored agent created from Vercel's network has been
+ * observed invisible — 404 on GET, absent from LIST, `agent_not_found` on the
+ * socket — to calls from another network, for 30+ minutes with no convergence
+ * (docs/research/gate-results-2026-09-22.md). Real users connect from outside
+ * Vercel's network too, so the client must be able to say "that id did not
+ * resolve for me, give me one that does" rather than being handed the same dead
+ * id on every retry.
+ */
+async function ensureAgent(
+  apiKey: string,
+  origin: string,
+  secret: string,
+  recreate: boolean,
+): Promise<string> {
   const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" };
 
   // The list response is lightweight: id, name, timestamps. Enough to reuse.
-  const list = await fetch(`${AGENTS_BASE}/v1/agents`, { headers, cache: "no-store" });
-  if (list.ok) {
+  const list = recreate
+    ? null
+    : await fetch(`${AGENTS_BASE}/v1/agents`, { headers, cache: "no-store" });
+  if (list?.ok) {
     const { agents = [] } = (await list.json()) as { agents?: { id: string; name: string }[] };
     const existing = agents.find((a) => a.name === AGENT_NAME);
     if (existing) {
@@ -85,7 +103,8 @@ export async function POST(request: Request) {
   }
 
   try {
-    const agentId = await ensureAgent(apiKey, origin, secret);
+    const recreate = (body as { recreate?: unknown }).recreate === true;
+    const agentId = await ensureAgent(apiKey, origin, secret, recreate);
 
     const upstream = await fetch(buildTokenUrl(), {
       headers: { Authorization: `Bearer ${apiKey}` },

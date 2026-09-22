@@ -1565,7 +1565,7 @@ git commit -m "feat: verbatim ledger reducer with narrow normalisation"
 
 **Two things Task 5's gate runs added to this task, both measured, neither optional:**
 
-1. **`agent_not_found` is recoverable, not fatal.** A stored agent created from Vercel's network has been observed invisible to another network for 30+ minutes. Real users connect from outside Vercel too. On that error, re-POST `/api/call` asking for a freshly created agent, mint a **fresh** token (they are single-use), and reconnect. This is the top remaining technical risk; do not ship without it.
+1. **`agent_not_found` is recoverable, not fatal.** A stored agent created from Vercel's network has been observed invisible to another network for 30+ minutes. Real users connect from outside Vercel too. The server half is **already built**: `POST /api/call { "recreate": true }` skips the reuse path and returns a freshly created agent plus a fresh token. The client half is this task — on `agent_not_found`, re-POST with `recreate: true`, mint a **fresh** token (they are single-use), reconnect, and give up after a bounded number of attempts rather than looping. This is the top remaining technical risk; do not ship without it.
 2. **A retry can speak the same sentence twice.** Every chat-completions request carries `x-stainless-retry-count`, so AssemblyAI's client retries. Nothing is known about what triggers one. Do not try to suppress it client-side — let the ledger show two spoken lines against one typed line, which is the honest surface, and measure it before demo day if there is time.
 
 `/api/call`'s demo code and per-IP rate limit shipped with Task 4's fix wave; the client should surface a 403 as "this demo needs an access code" and a 429 with its `Retry-After`.

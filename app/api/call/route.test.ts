@@ -112,6 +112,31 @@ describe("POST /api/call — who is allowed to mint a token", () => {
     expect(response.status).not.toBe(403);
   });
 
+  it("skips agent reuse entirely when the client reports the stored id did not resolve", async () => {
+    const seen: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        seen.push(`${init?.method ?? "GET"} ${String(input)}`);
+        if (String(input).startsWith("https://agents.assemblyai.com/v1/agents")) {
+          return new Response(JSON.stringify({ id: "agent_fresh" }), { status: 201 });
+        }
+        return new Response(JSON.stringify({ token: "tok" }), { status: 200 });
+      }),
+    );
+
+    const response = await POST(
+      call("203.0.113.7", {
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ recreate: true }),
+      }),
+    );
+
+    expect(await response.json()).toMatchObject({ agentId: "agent_fresh" });
+    // The LIST that would have handed back the same unreachable id must not run.
+    expect(seen).not.toContain("GET https://agents.assemblyai.com/v1/agents");
+  });
+
   it("rate-limits a caller minting tokens in a loop, and says when to retry", async () => {
     for (let i = 0; i < 5; i++) await POST(call("203.0.113.6"));
     const response = await POST(call("203.0.113.6"));
