@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Composer } from "./Composer";
 
@@ -8,11 +9,17 @@ const props = {
   value: "",
   onChange: () => {},
   onSend: () => {},
-  mode: "verbatim" as const,
-  onModeChange: () => {},
   disabled: false,
 };
 const box = () => screen.getByRole("textbox", { name: /type what you want said/i });
+const type = (value: string) => fireEvent.change(box(), { target: { value } });
+
+/** The composer is controlled by the page, so anything that depends on the
+ * corrected value coming back down needs a real state holder. */
+function Live({ onSend = () => {} }: { onSend?: (text: string) => void }) {
+  const [value, setValue] = useState("");
+  return <Composer value={value} onChange={setValue} onSend={onSend} disabled={false} />;
+}
 
 describe("Composer", () => {
   it("shows the value it is given rather than its own state", () => {
@@ -23,7 +30,7 @@ describe("Composer", () => {
   it("reports every keystroke upward", () => {
     const onChange = vi.fn();
     render(<Composer {...props} onChange={onChange} />);
-    fireEvent.change(box(), { target: { value: "a" } });
+    type("a");
     expect(onChange).toHaveBeenCalledWith("a");
   });
 
@@ -34,11 +41,11 @@ describe("Composer", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
-  it("sends the trimmed line with the current mode", () => {
+  it("sends the trimmed line", () => {
     const onSend = vi.fn();
     render(<Composer {...props} value=" Yes. " onSend={onSend} />);
     fireEvent.keyDown(box(), { key: "Enter" });
-    expect(onSend).toHaveBeenCalledWith("Yes.", "verbatim");
+    expect(onSend).toHaveBeenCalledWith("Yes.");
   });
 
   it("does not send on shift+Enter — that is a new line", () => {
@@ -59,6 +66,72 @@ describe("Composer", () => {
     const onSend = vi.fn();
     render(<Composer {...props} onSend={onSend} />);
     fireEvent.click(screen.getByRole("button", { name: "Please repeat that." }));
-    expect(onSend).toHaveBeenCalledWith("Please repeat that.", "verbatim");
+    expect(onSend).toHaveBeenCalledWith("Please repeat that.");
+  });
+
+  it("has no mode to choose — there is one mode and this is it", () => {
+    render(<Composer {...props} />);
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByText(/assistant/i)).toBeNull();
+  });
+});
+
+describe("Composer typo correction", () => {
+  it("fixes a word once it is finished", () => {
+    render(<Live />);
+    type("teh ");
+    expect((box() as HTMLTextAreaElement).value).toBe("the ");
+  });
+
+  it("leaves a word alone while it is still being typed", () => {
+    render(<Live />);
+    type("teh");
+    expect((box() as HTMLTextAreaElement).value).toBe("teh");
+  });
+
+  it("says on screen what it changed, so nothing is altered invisibly", () => {
+    render(<Live />);
+    type("dont ");
+    expect(screen.getByText(/changed/i).textContent).toMatch(/dont.*don't/);
+  });
+
+  it("puts the typo back when the correction is undone", () => {
+    render(<Live />);
+    type("teh ");
+    fireEvent.click(screen.getByRole("button", { name: /undo/i }));
+    expect((box() as HTMLTextAreaElement).value).toBe("teh ");
+    expect(screen.queryByText(/changed/i)).toBeNull();
+  });
+
+  it("puts the typo back on backspace, the way a phone keyboard does", () => {
+    render(<Live />);
+    type("teh ");
+    fireEvent.keyDown(box(), { key: "Backspace" });
+    expect((box() as HTMLTextAreaElement).value).toBe("teh ");
+  });
+
+  it("lets backspace delete normally once the user has typed on", () => {
+    render(<Live />);
+    type("teh ");
+    type("the cat");
+    fireEvent.keyDown(box(), { key: "Backspace" });
+    expect((box() as HTMLTextAreaElement).value).toBe("the cat");
+  });
+
+  it("catches the last word on Enter, which never met a space", () => {
+    const onSend = vi.fn();
+    render(<Composer {...props} value="that is teh" onSend={onSend} />);
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("that is the");
+  });
+
+  // Once it has been spoken there is nothing to undo, and offering a button
+  // that cannot work would be worse than saying nothing.
+  it("reports a correction made on send without offering to undo it", () => {
+    render(<Live />);
+    type("teh");
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect(screen.getByText(/changed/i)).toBeDefined();
+    expect(screen.queryByRole("button", { name: /undo/i })).toBeNull();
   });
 });

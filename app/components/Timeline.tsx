@@ -1,5 +1,6 @@
 "use client";
-import { verbatimCount, type Utterance } from "@/lib/ledger";
+import { useEffect, useRef } from "react";
+import type { Utterance } from "@/lib/ledger";
 
 export interface HeardLine {
   id: string;
@@ -11,22 +12,16 @@ export interface HeardLine {
  * because the captioning literature is clear that colour alone loses
  * colourblind users, and because the three accents are deliberately matched in
  * darkness so none shouts over the others (interface spec §4.2). */
-const RECEIPT: Record<Utterance["status"], { word: string }> = {
-  pending: { word: "speaking…" },
-  match: { word: "spoken exactly" },
-  mismatch: { word: "altered" },
-  interrupted: { word: "interrupted" },
+const RECEIPT: Record<Utterance["status"], string> = {
+  pending: "speaking…",
+  match: "spoken exactly",
+  mismatch: "altered",
+  interrupted: "interrupted",
 };
 
-function receiptFor(u: Utterance): { word: string } {
-  if (u.mode === "assistant" && u.status === "mismatch") return { word: "assistant spoke" };
-  return RECEIPT[u.status];
-}
-
-/** Only a VERBATIM mismatch is an alteration. An assistant paraphrase is
- * something the user delegated on purpose; flagging it would mislabel their
- * own choice as our failure. */
-const isAltered = (u: Utterance) => u.mode === "verbatim" && u.status === "mismatch";
+/** There is one mode, so a mismatch has one meaning: the line that went out was
+ * not the line that was typed. That is the loud state and it should be loud. */
+const isAltered = (u: Utterance) => u.status === "mismatch";
 
 function Icon({ status, colour }: { status: Utterance["status"]; colour: string }) {
   const common = {
@@ -55,7 +50,7 @@ function Heard({ text }: { text: string }) {
 }
 
 function Said({ u }: { u: Utterance }) {
-  const { word } = receiptFor(u);
+  const word = RECEIPT[u.status];
   return (
     <li className="rounded-lg border border-line bg-surface p-4">
       <p className="measure text-xl leading-relaxed text-ink">{u.typedText}</p>
@@ -78,8 +73,8 @@ function Said({ u }: { u: Utterance }) {
 
       {isAltered(u) && u.spokenText !== null && (
         <div className="mt-3 border-t border-line pt-3">
-          <p className="text-[13px] uppercase tracking-widest text-mute">actually spoken</p>
-          <p className="measure text-xl leading-relaxed text-ink">{u.spokenText}</p>
+          <p className="text-sm text-mute">What the line actually said:</p>
+          <p className="measure mt-1 text-xl leading-relaxed text-ink">{u.spokenText}</p>
         </div>
       )}
     </li>
@@ -95,18 +90,33 @@ export function Timeline({
   utterances: Utterance[];
   partial: string;
 }) {
-  const { matched, total } = verbatimCount(utterances);
   const items = [
     ...heard.map((h) => ({ seq: h.seq, node: <Heard key={`h${h.id}`} text={h.text} /> })),
     ...utterances.map((u) => ({ seq: u.seq, node: <Said key={`u${u.id}`} u={u} /> })),
   ].sort((a, b) => a.seq - b.seq);
 
-  return (
-    <section aria-label="Call" className="flex flex-col gap-4">
-      <h2 className="text-[13px] uppercase tracking-widest text-mute">
-        {matched} of {total} spoken exactly
-      </h2>
+  const scroller = useRef<HTMLElement>(null);
+  const stuckToBottom = useRef(true);
 
+  // The newest line has to be the visible one — on a live call the user is
+  // reading the bottom of this list while someone is still talking. But scroll
+  // it back yourself to re-read something and it must stay where you put it,
+  // so following resumes only once you return to the end.
+  useEffect(() => {
+    const el = scroller.current;
+    if (el && stuckToBottom.current) el.scrollTop = el.scrollHeight;
+  }, [items.length, partial]);
+
+  return (
+    <section
+      ref={scroller}
+      aria-label="Call"
+      onScroll={(e) => {
+        const el = e.currentTarget;
+        stuckToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+      }}
+      className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto py-2"
+    >
       <ol className="flex flex-col gap-5">{items.map((i) => i.node)}</ol>
 
       {/* The line still being said. aria-live so a screen reader announces it

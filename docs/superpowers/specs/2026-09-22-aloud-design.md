@@ -17,6 +17,10 @@ Three things that spec asserted are **dead and must not reappear**:
 2. **In-session PII redaction.** It does not exist on the Voice Agent API. It never did.
 3. **Tool-call-driven UI state.** Aloud's UI state comes from transcript events and its own server, not from function tools. Aloud declares **no tools at all** in v1.
 
+A fourth was added on **2026-09-23**, after this spec was written:
+
+4. **Assistant mode.** Deleted — §4.2–4.4 below record what it was and why it went. There is now exactly one mode, no `llm` proxy path, and no branch in `/api/llm/v1/chat/completions` that can reach a model. Do not reintroduce a toggle that routes the user's line through inference.
+
 One thing carries over intact: the **browser audio pipeline** (§7). It is product-neutral and the constraints in it are real.
 
 ---
@@ -195,13 +199,25 @@ There is no prompt anywhere instructing a model to repeat the user's words. Verb
 
 ---
 
-## 4. The two modes
+## 4. The one mode
 
-### 4.1 Verbatim (default, and the only mode that speaks in the user's name)
+### 4.1 Verbatim (and now the only mode)
 
 As §3. The agent says what the user typed, and nothing else.
 
-### 4.2 Assistant (opt-in, navigation only)
+> ### Deleted 2026-09-23 — assistant mode
+>
+> §4.2–4.4 below are kept as a record, not as a specification. Nothing in them is built, and §0 item 4 says not to rebuild it.
+>
+> **What forced it.** The account has no LLM Gateway entitlement. Probed 2026-09-23 against `https://llm-gateway.assemblyai.com/v1/chat/completions` with the project's own key: `claude-sonnet-4-6`, `gpt-5.2`, `gemini-2.5-flash` and `gemini-2.5-pro` each returned **HTTP 400, `"Your account does not have access to this LLM Gateway model"`**. Not a model-name error — `claude-haiku-4-5` and `qwen3-235b` come back with a different message (`"is not supported"`), so the 400 above is an account entitlement, consistent with §10's note that the Gateway is excluded from the free credits.
+>
+> So the toggle had never once worked. Every use of it hit the §6 fallback and made the phone say *"The assistant is unavailable. The caller will type."* — the one sentence the feature could reliably produce.
+>
+> **Why deleted rather than funded.** PRD §10.2 and §4.3 below both said this was the open question to put to a person with lived experience, and that if the answer was "never", the product is still whole without it. Nobody had answered. Shipping a control that speaks in the user's general direction but not in their name, that has never worked, and that nobody asked for, was the wrong side of that question to guess on. Removing it also removes the only code path by which a model could ever have reached the line — which makes the product's central claim structural rather than conditional.
+>
+> **What the IVR problem still needs.** Nothing here solves it. Quick phrases cover "please hold" and "I'm using a relay service"; a menu that demands a keypress within five seconds still defeats the user. That is an honest gap, and it belongs in the roadmap as one.
+
+### 4.2 Assistant (deleted — see above)
 
 The user taps a clearly-marked control. From then until they tap it off, the endpoint stops echoing and proxies to AssemblyAI's LLM Gateway (`https://llm-gateway.assemblyai.com/v1`, an OpenAI-compatible endpoint), passing the conversation through and streaming the reply back.
 

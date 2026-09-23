@@ -32,7 +32,7 @@ describe("POST /api/llm/v1/chat/completions", () => {
         body: JSON.stringify({
           model: "aloud-verbatim",
           stream: true,
-          messages: [{ role: "user", content: encodeOutbound("verbatim", "hello") }],
+          messages: [{ role: "user", content: encodeOutbound("hello") }],
         }),
       }),
     );
@@ -48,7 +48,7 @@ describe("POST /api/llm/v1/chat/completions", () => {
         body: JSON.stringify({
           model: "aloud-verbatim",
           stream: true,
-          messages: [{ role: "user", content: encodeOutbound("verbatim", "no bearer") }],
+          messages: [{ role: "user", content: encodeOutbound("no bearer") }],
         }),
       }),
     );
@@ -64,7 +64,7 @@ describe("POST /api/llm/v1/chat/completions", () => {
         body: JSON.stringify({
           model: "aloud-verbatim",
           stream: true,
-          messages: [{ role: "user", content: encodeOutbound("verbatim", "bearer on x-api-key") }],
+          messages: [{ role: "user", content: encodeOutbound("bearer on x-api-key") }],
         }),
       }),
     );
@@ -80,7 +80,7 @@ describe("POST /api/llm/v1/chat/completions", () => {
         body: JSON.stringify({
           model: "aloud-verbatim",
           stream: true,
-          messages: [{ role: "user", content: encodeOutbound("verbatim", "empty authorization") }],
+          messages: [{ role: "user", content: encodeOutbound("empty authorization") }],
         }),
       }),
     );
@@ -90,14 +90,14 @@ describe("POST /api/llm/v1/chat/completions", () => {
 
   it("reads content that arrives as an array of parts, not just a string", async () => {
     const res = await POST(
-      request([{ role: "user", content: [{ text: encodeOutbound("verbatim", "parts form") }] }]),
+      request([{ role: "user", content: [{ text: encodeOutbound("parts form") }] }]),
     );
     expect(await body(res)).toContain(JSON.stringify("parts form"));
   });
 
   it("streams the typed text back byte for byte", async () => {
     const res = await POST(
-      request([{ role: "user", content: encodeOutbound("verbatim", "I'd like to reschedule.") }]),
+      request([{ role: "user", content: encodeOutbound("I'd like to reschedule.") }]),
     );
     expect(res.headers.get("content-type")).toContain("text/event-stream");
     expect(await body(res)).toContain(JSON.stringify("I'd like to reschedule."));
@@ -112,7 +112,7 @@ describe("POST /api/llm/v1/chat/completions", () => {
       request([
         { role: "system", content: "You are an automated relay assistant on a live phone call." },
         { role: "assistant", content: "Hello. You're on a relay call. " },
-        { role: "system", content: encodeOutbound("verbatim", "I'd like to reschedule Thursday.") },
+        { role: "system", content: encodeOutbound("I'd like to reschedule Thursday.") },
       ]),
     );
     expect(await body(res)).toContain(JSON.stringify("I'd like to reschedule Thursday."));
@@ -121,10 +121,10 @@ describe("POST /api/llm/v1/chat/completions", () => {
   it("uses the LAST sentinel message, not the first", async () => {
     const res = await POST(
       request([
-        { role: "system", content: encodeOutbound("verbatim", "first") },
+        { role: "system", content: encodeOutbound("first") },
         { role: "assistant", content: "first" },
         { role: "user", content: "the front desk said something" },
-        { role: "system", content: encodeOutbound("verbatim", "second") },
+        { role: "system", content: encodeOutbound("second") },
       ]),
     );
     const text = await body(res);

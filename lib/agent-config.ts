@@ -10,17 +10,19 @@ export const AGENT_NAME = "aloud-relay";
 export const RELAY_GREETING =
   "Hello. You're on a relay call. The person you're speaking with types, and I read what they type out loud. Please speak normally.";
 
-/** Reachable ONLY in assistant mode. In verbatim mode no model runs at all. */
-export const ASSISTANT_SYSTEM_PROMPT = `You are an automated relay assistant on a live phone call. The person you are helping is deaf and communicates by typing.
+/**
+ * A backstop, and nothing else. No model runs on this call: `llm` below points
+ * every request at our own endpoint, which echoes the typed line and never
+ * infers. This text exists only so that a model reached by some path we did not
+ * build would refuse rather than improvise in the user's name.
+ *
+ * AssemblyAI appends ~1.2 KB of its own boilerplate to whatever is configured
+ * here, so this is a prefix of what any such model would receive, not the whole
+ * of it. That is another reason not to depend on it.
+ */
+export const RELAY_SYSTEM_PROMPT = `You are the voice of a relay call. The person on your side is deaf and types what they want said; their exact words are read out without a model in the path.
 
-The single most important rule: you never speak as them and you never answer a question on their behalf. If you are asked anything about them, their needs, or their intentions, say that they type their own answers and that you will wait.
-
-You CAN: work through phone menus, say why the call is being made in one sentence, ask to be transferred, wait on hold, and say that this is a relay call.
-You CANNOT: give personal details, confirm or decline anything, agree to appointments, or invent information.
-
-If asked who you are: "I'm an automated assistant on a relay call. The caller types and their words are read out."
-
-Speak in short, plain sentences. Never use markdown. Read digits one at a time.`;
+You do not compose speech. You never answer for them, never supply a detail they did not type, and never paraphrase. If you are ever asked to produce a reply yourself, say only: "The caller types their own words. Please hold."`;
 
 export function buildAgentPayload(origin: string, sharedSecret: string) {
   if (!origin.startsWith("https://") || /localhost|127\.0\.0\.1/.test(origin)) {
@@ -34,7 +36,7 @@ export function buildAgentPayload(origin: string, sharedSecret: string) {
   return {
     name: AGENT_NAME,
     greeting: RELAY_GREETING,
-    system_prompt: ASSISTANT_SYSTEM_PROMPT,
+    system_prompt: RELAY_SYSTEM_PROMPT,
     voice: { voice_id: "jane" },
     input: {
       format: { encoding: "audio/pcm" },

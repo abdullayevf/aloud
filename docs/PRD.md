@@ -104,14 +104,22 @@ Two things get hung up on: silence and slowness.
 - **Quick phrases**, one tap: *"Please repeat that."* · *"Please hold on."* · *"I'm using a relay service — please speak normally."* · *"Yes."* · *"No."*
 - **Measured latency**, taken from the session's own `time_to_first_audio_ms` in the timeline artifact, not quoted from a spec sheet.
 
-### 4.5 Assistant mode — navigation only, off by default — *Business Value*
+### 4.5 ~~Assistant mode — navigation only, off by default~~ — **cut 2026-09-23**
+
+> **Cut, and the gap it leaves is real.** The account has no LLM Gateway entitlement: every valid model returns HTTP 400 `"Your account does not have access to this LLM Gateway model"` (measured 2026-09-23 against the project's own key; `claude-sonnet-4-6`, `gpt-5.2`, `gemini-2.5-flash`, `gemini-2.5-pro`). The toggle therefore never worked once — it could only ever make the phone say *"The assistant is unavailable. The caller will type."*
+>
+> Rather than fund a feature §10.2 had flagged as the open question to put to a person with lived experience, it was deleted. One mode now, and no code path from a typed line to a model at all — which turns the product's central claim from a promise into a property of the build.
+>
+> **Phone menus remain a documented barrier and Aloud does not solve them.** Quick phrases cover "please hold" and "I'm using a relay service"; a menu that demands a keypress inside five seconds still defeats the user. Say that plainly in the pitch rather than implying coverage. Full record: design spec §0 item 4 and §4.2.
+
+The original intent, kept for the record:
 
 Phone menus are a documented barrier for relay users ("I hate that" — Steinberg et al.). So the same custom endpoint can, on the user's explicit instruction, stop passing through and handle **the machine part of the call**: press 2, wait on hold, answer "what's this regarding?".
 
 Three hard rules, because this is where a product like this goes wrong:
 
 1. **It is off by default and it never turns itself on.**
-2. **It never speaks in the user's name.** In assistant mode the agent identifies itself as an automated relay assistant. It does not impersonate the user or invent the user's answers.
+2. **It never speaks in the user's name.** Nothing composes speech on the user's behalf; since 2026-09-23 there is no mode in which anything could. (This clause described assistant mode, now cut — §4.5.)
 3. **The screen is unmistakable about which mode is live**, and the ledger records the mode for every utterance.
 
 This is deliberately narrower than what the market already does — InnoCaption's "AI Refine" expands `make appointment` into a sentence the user did not write (pitch-stats §4.2). Aloud will not do that, and the contrast is the pitch.
@@ -197,7 +205,7 @@ The lesson that carried over: **check what already exists before claiming the ga
 Decisions 1–4 below were **made by the assistant on 2026-09-22** under an explicit instruction from the user to proceed without asking. Each is recorded with its reasoning so it can be reversed cheaply.
 
 1. **Primary user — decided: lead deaf/HoH, name non-speaking users second.** Deaf/HoH carries the statutory mandate and the funding; the non-speaking market is larger in dollars per minute and needs no separate build. *Reversible at the cost of rewording §1, §2 and the deck.*
-2. **Does the agent ever speak *for* the user? — decided: no.** Verbatim is the only mode that speaks in the user's name. Assistant mode (§4.5) handles machines, identifies itself as an assistant, and never invents the user's answers. **This is the question to put to someone with lived experience**, and their answer overrides this one.
+2. **Does the agent ever speak *for* the user? — decided: no, and now structurally so.** Verbatim was the only mode that ever spoke in the user's name; assistant mode (§4.5) was cut on 2026-09-23 and there is no longer any code path from a typed line to a model. **This was the question to put to someone with lived experience** — it is now moot for the build, but the IVR barrier it was meant to address is still unsolved and should be named as a gap, not quietly dropped.
 3. **Demo scenario — decided:** rescheduling a clinic appointment; hearing party speaks English; the call opens on an IVR menu so assistant mode has an honest reason to exist.
 4. **Git history — decided: kept.** The two pre-pivot commits stay, and the pivot lands as an honest commit. A day-one pivot with its reasoning in the repo reads as judgment, not as noise. Because history was kept, the pre-pivot tree is an ancestor of `HEAD` and is recoverable without any backup ref; the temporary backup tags were deleted on 2026-09-22.
 5. ~~**Repo directory name**~~ — **done.** The working directory is `aloud/`, and the repo has a remote at `github.com/abdullayevf/aloud`.

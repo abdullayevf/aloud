@@ -68,7 +68,7 @@ describe("RelayClient", () => {
     FakeSocket.last.onopen?.();
     FakeSocket.last.emit({ type: "session.ready", session_id: "sess_1" });
     FakeSocket.last.sent.length = 0;
-    c.say("hello", "verbatim");
+    c.say("hello");
     const sent = FakeSocket.last.sent.map((s) => JSON.parse(s));
     expect(sent).toEqual([
       { type: "reply.create", instructions: "\u0001SAY\u0001hello\u0001END\u0001" },

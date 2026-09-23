@@ -1,4 +1,4 @@
-import { encodeOutbound, type RelayMode } from "./sentinel";
+import { encodeOutbound } from "./sentinel";
 import type { ReplyPlayer } from "./audio/playback";
 import type { TurnEvent } from "./turn-state";
 
@@ -133,9 +133,9 @@ export class RelayClient {
    * first. Do not reintroduce `conversation.message` — it never reaches a
    * custom LLM's request body at all.
    */
-  say(text: string, mode: RelayMode): string {
+  say(text: string): string {
     const id = crypto.randomUUID();
-    this.send({ type: "reply.create", instructions: encodeOutbound(mode, text) });
+    this.send({ type: "reply.create", instructions: encodeOutbound(text) });
     return id;
   }
 

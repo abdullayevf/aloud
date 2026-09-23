@@ -9,6 +9,7 @@ import { MicCapture } from "@/lib/audio/capture";
 import { ReplyPlayer } from "@/lib/audio/playback";
 import { connectWithRecovery, type CredentialsFetcher, type RelayClient } from "@/lib/relay-client";
 import {
+  awaitingReceipt,
   ledgerReducer,
   remainderOf,
   verbatimCount,
@@ -16,7 +17,6 @@ import {
   type Utterance,
 } from "@/lib/ledger";
 import { INITIAL_TURN, turnLabel, turnReducer, type TurnEvent } from "@/lib/turn-state";
-import type { RelayMode } from "@/lib/sentinel";
 
 export default function Page() {
   const [status, setStatus] = useState("not connected");
@@ -31,7 +31,6 @@ export default function Page() {
   const [ended, setEnded] = useState(false);
   const [partial, setPartial] = useState("");
   const [utterances, setUtterances] = useState<Utterance[]>([]);
-  const [mode, setMode] = useState<RelayMode>("verbatim");
   const [live, setLive] = useState(false);
   const [connecting, setConnecting] = useState(false);
 
@@ -241,10 +240,25 @@ export default function Page() {
   const { matched, total } = verbatimCount(utterances);
 
   return (
-    <main className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-8 p-6">
-      <header className="flex flex-wrap items-baseline justify-between gap-4 border-b border-line pb-4">
+    // Live, this is a console with fixed chrome and exactly one scrolling
+    // region — the timeline. It is the whole fix for the turn indicator
+    // disappearing off the top of a long call: the element a deaf user depends
+    // on most cannot be allowed to scroll away from them.
+    <main
+      className={`mx-auto flex w-full max-w-3xl flex-col gap-5 p-6 ${
+        live ? "h-dvh" : "min-h-dvh"
+      }`}
+    >
+      {/* One rule under the fixed chrome, not two: live, the turn bar carries
+        * it, so the header drops its own rather than stack a second line 60px
+        * above it. */}
+      <header
+        className={`flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 ${
+          live ? "" : "border-b border-line pb-4"
+        }`}
+      >
         <span className="text-2xl font-bold tracking-tight text-ink">Aloud</span>
-        <span className="text-[13px] uppercase tracking-widest text-mute">{status}</span>
+        <span className="text-sm text-mute">{status}</span>
       </header>
 
       {error && (
@@ -267,7 +281,14 @@ export default function Page() {
 
       {live && (
         <>
-          <TurnIndicator label={turnLabel(turn)} />
+          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 border-b border-line pb-3">
+            {/* The second argument is the whole correction: a reply turn the API
+              * started on its own is not the user's voice. lib/turn-state.ts. */}
+            <TurnIndicator label={turnLabel(turn, awaitingReceipt(utterances))} />
+            <p className="text-sm tabular-nums text-dim">
+              {total === 0 ? "Nothing spoken yet" : `${matched} of ${total} spoken exactly`}
+            </p>
+          </div>
 
           <Timeline heard={heard} utterances={utterances} partial={partial} />
 
@@ -275,18 +296,16 @@ export default function Page() {
             value={draft}
             onChange={setDraft}
             disabled={!live}
-            mode={mode}
-            onModeChange={setMode}
-            onSend={(text, sendMode) => {
-              const id = client.current!.say(text, sendMode);
+            onSend={(text) => {
+              const id = client.current!.say(text);
               seq.current += 1;
-              push({ type: "typed", id, seq: seq.current, text, mode: sendMode });
+              push({ type: "typed", id, seq: seq.current, text });
             }}
           />
 
           <button
             onClick={hangUp}
-            className="self-start rounded-lg border border-danger px-5 py-3 font-bold text-danger hover:bg-danger hover:text-paper"
+            className="self-start rounded-lg border border-danger px-5 py-2.5 font-bold text-danger hover:bg-danger hover:text-paper"
           >
             Hang up and delete the recording
           </button>

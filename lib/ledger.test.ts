@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  awaitingReceipt,
   ledgerReducer,
   normalizeForCompare,
   remainderOf,
@@ -9,7 +10,7 @@ import {
 
 let nextSeq = 0;
 const typed = (id: string, text: string) =>
-  ({ type: "typed", id, seq: (nextSeq += 1), text, mode: "verbatim" }) as const;
+  ({ type: "typed", id, seq: (nextSeq += 1), text }) as const;
 const spoken = (text: string, interrupted = false) =>
   ({ type: "spoken", text, interrupted }) as const;
 
@@ -65,25 +66,32 @@ describe("ledgerReducer", () => {
     expect(verbatimCount(state)).toEqual({ matched: 0, total: 1 });
   });
 
-  it("counts only verbatim utterances", () => {
-    const state = run(
-      typed("1", "hello"),
-      spoken("hello"),
-      { type: "typed", id: "2", seq: 99, text: "press 2", mode: "assistant" },
-      spoken("Pressing two now."),
-    );
+  it("leaves a line that has not come back yet out of the count entirely", () => {
+    const state = run(typed("1", "hello"), spoken("hello"), typed("2", "still going"));
     expect(verbatimCount(state)).toEqual({ matched: 1, total: 1 });
   });
 
   it("carries the sequence number from the typed event onto the utterance", () => {
-    const state = ledgerReducer([], {
-      type: "typed",
-      id: "a",
-      seq: 7,
-      text: "hello",
-      mode: "verbatim",
-    });
+    const state = ledgerReducer([], { type: "typed", id: "a", seq: 7, text: "hello" });
     expect(state[0].seq).toBe(7);
+  });
+});
+
+// What separates "the agent is taking a turn" from "your words are going out".
+// The turn indicator is wrong without it — see lib/turn-state.ts.
+describe("awaitingReceipt", () => {
+  it("is false with nothing typed, and false once every line has come back", () => {
+    expect(awaitingReceipt([])).toBe(false);
+    expect(awaitingReceipt(run(typed("1", "hello"), spoken("hello")))).toBe(false);
+  });
+
+  it("is true from the moment a line is typed until its receipt arrives", () => {
+    expect(awaitingReceipt(run(typed("1", "hello")))).toBe(true);
+  });
+
+  it("stays true while a second line is still outstanding", () => {
+    const state = run(typed("1", "one"), typed("2", "two"), spoken("one"));
+    expect(awaitingReceipt(state)).toBe(true);
   });
 });
 

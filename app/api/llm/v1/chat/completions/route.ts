@@ -56,12 +56,16 @@ function textOf(content: Content): string {
  * The scan runs from the end and accepts any role, because the exact position
  * and role are AssemblyAI's to change; the sentinel is ours. Nothing else in a
  * request body can carry it: the agent's own system prompt never contains it,
- * and assistant history holds the spoken text with the wrapper already removed.
+ * and the reply history holds the spoken text with the wrapper already removed.
+ *
+ * Compared against null, never tested for truthiness: an utterance that decodes
+ * to the empty string is a real arrival that happens to say nothing, and it
+ * must stop the scan rather than send it hunting through older messages.
  */
-function pendingUtterance(messages: Message[]) {
+function pendingUtterance(messages: Message[]): string | null {
   for (let i = messages.length - 1; i >= 0; i--) {
     const decoded = decodeOutbound(textOf(messages[i].content ?? ""));
-    if (decoded) return decoded;
+    if (decoded !== null) return decoded;
   }
   return null;
 }
@@ -103,54 +107,12 @@ export async function POST(request: Request): Promise<Response> {
   const pending = pendingUtterance(payload.messages ?? []);
 
   // Nothing to say. Silence is the correct output for a relay with no pending
-  // utterance — see spec §3.2 gate G2.
-  if (!pending) return stream(buildVerbatimSSE("", model, id, created));
+  // utterance, and it is the common case: the API takes a reply turn after
+  // every hearing-party turn whether or not we handed it anything — spec §3.2
+  // gate G2.
+  if (pending === null) return stream(buildVerbatimSSE("", model, id, created));
 
-  // VERBATIM: no model, no rewriting, no inference. This line is the product.
-  if (pending.mode === "verbatim") {
-    return stream(buildVerbatimSSE(pending.text, model, id, created));
-  }
-
-  // ASSISTANT: the user explicitly delegated. Proxy to the LLM Gateway.
-  return proxyToGateway(payload, model, id, created);
-}
-
-async function proxyToGateway(
-  payload: { messages?: Message[] },
-  model: string,
-  id: string,
-  created: number,
-): Promise<Response> {
-  const apiKey = process.env.ASSEMBLYAI_API_KEY;
-  if (!apiKey) {
-    // Nothing to authenticate with — go straight to the same fallback the
-    // catch below returns, instead of sending a request that can only fail.
-    return stream(
-      buildVerbatimSSE("The assistant is unavailable. The caller will type.", model, id, created),
-    );
-  }
-  try {
-    const upstream = await fetch("https://llm-gateway.assemblyai.com/v1/chat/completions", {
-      method: "POST",
-      // Unlike agents.assemblyai.com, the LLM Gateway host takes the raw key with
-      // no Bearer prefix (docs/assemblyai-integration.md, LLM Gateway section).
-      headers: { Authorization: `${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        stream: true,
-        messages: (payload.messages ?? []).map((m) => ({
-          role: m.role,
-          content: textOf(m.content ?? "").replace(/\u0001[A-Z]+\u0001/g, ""),
-        })),
-      }),
-    });
-    if (!upstream.ok || !upstream.body) throw new Error(`gateway ${upstream.status}`);
-    return new Response(upstream.body, { headers: SSE_HEADERS });
-  } catch {
-    // Never leave the line silent on an assistant failure: say one fixed
-    // sentence and let the UI drop back to verbatim.
-    return stream(
-      buildVerbatimSSE("The assistant is unavailable. The caller will type.", model, id, created),
-    );
-  }
+  // No model, no rewriting, no inference, no branch that could reach one. This
+  // line is the product.
+  return stream(buildVerbatimSSE(pending, model, id, created));
 }

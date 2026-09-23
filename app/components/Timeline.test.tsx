@@ -8,7 +8,6 @@ const u = (over: Partial<Utterance>): Utterance => ({
   seq: 1,
   typedText: "hello",
   spokenText: "hello",
-  mode: "verbatim",
   status: "match",
   ...over,
 });
@@ -73,34 +72,21 @@ describe("Timeline", () => {
     expect(screen.getByText(/interrupted/i)).toBeDefined();
   });
 
-  // Carried over from the deleted Ledger.test.tsx — an intentional paraphrase
-  // the user delegated is not an alteration, and never gets the flagged fill.
-  it("calls an assistant-mode mismatch a paraphrase and does not flag it", () => {
-    render(
-      <Timeline
-        heard={[]}
-        partial=""
-        utterances={[
-          u({ mode: "assistant", status: "mismatch", typedText: "press 2", spokenText: "Pressing two now." }),
-        ]}
-      />,
-    );
-    const label = screen.getByText(/assistant spoke/i);
-    expect(label).toBeDefined();
-    expect(screen.queryByText(/altered/i)).toBeNull();
-    expect(label.className).not.toContain("altered");
-  });
-
-  it("shows the running verbatim count and excludes assistant lines from it", () => {
-    render(
-      <Timeline heard={[]} partial="" utterances={[u({}), u({ id: "u2", seq: 2, mode: "assistant" })]} />,
-    );
-    expect(screen.getByText(/1 of 1 spoken exactly/i)).toBeDefined();
-  });
-
   it("shows the in-flight partial caption in a live region", () => {
     render(<Timeline heard={[heard({})]} utterances={[]} partial="I was thinking" />);
     const live = screen.getByText("I was thinking");
     expect(live.getAttribute("aria-live")).toBe("polite");
+  });
+
+  // The regression guard for the turn indicator scrolling off the top of a long
+  // call. The timeline is the ONLY scrolling region on a live screen; if it
+  // stops owning its own overflow, the page scrolls instead and takes the one
+  // element a deaf user depends on most off the screen with it. Asserted on the
+  // class because that is where the behaviour lives — jsdom has no layout.
+  it("scrolls inside itself, so the chrome around it cannot scroll away", () => {
+    render(<Timeline heard={[heard({})]} utterances={[]} partial="" />);
+    const region = screen.getByLabelText("Call");
+    expect(region.className).toContain("overflow-y-auto");
+    expect(region.className).toContain("min-h-0");
   });
 });

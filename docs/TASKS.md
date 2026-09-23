@@ -38,7 +38,7 @@ Plan **Tasks 8–9**: the ledger reducer and the relay client.
 *Done when:* the unit suite is green and a scripted call types, speaks, and reports a match.
 
 ### Day 6 — Sat 27 Sep · the screen
-Plan **Task 10**: captions, composer, quick phrases, ledger, status bar, assistant toggle.
+Plan **Task 10**: captions, composer, quick phrases, ledger, turn bar. (The assistant toggle that was listed here was cut on 2026-09-23 — PRD §4.5.)
 
 *Done when:* a stranger could place a call with no instructions.
 
@@ -74,7 +74,7 @@ Plan **Task 13** part two. Submit with hours to spare, then spend the remainder 
 | **LLM Gateway spend** — excluded from the free credits | Low | Low | Assistant mode is off by default; verbatim costs nothing extra | Continuous |
 | **Writing a claim that prior art contradicts** | Medium — it already happened once in this repo | Severe | `pitch-stats.md` §0 and §4 are read before any originality sentence is written | Every time copy is written |
 | **Scope creep into a post-call artifact** | Medium — the deleted product had a nice one | High — it contradicts §5 of the spec | Spec §0.1. If you catch yourself designing a transcript export, stop. | Continuous |
-| **Solo build, no slack** | Certain | Medium | Days 8–9 are deliberately not build days | Day 6. If the screen is not usable by Saturday night, cut assistant mode and the language beat. |
+| **Solo build, no slack** | Certain | Medium | Days 8–9 are deliberately not build days | Day 6. If the screen is not usable by Saturday night, cut the language beat. (Assistant mode, the other thing named here, was already cut on 2026-09-23.) |
 
 ## What gets cut first, in order
 

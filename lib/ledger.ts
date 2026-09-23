@@ -1,5 +1,3 @@
-import type { RelayMode } from "./sentinel";
-
 export type UtteranceStatus = "pending" | "match" | "mismatch" | "interrupted";
 
 export interface Utterance {
@@ -9,12 +7,11 @@ export interface Utterance {
   seq: number;
   typedText: string;
   spokenText: string | null;
-  mode: RelayMode;
   status: UtteranceStatus;
 }
 
 export type LedgerEvent =
-  | { type: "typed"; id: string; seq: number; text: string; mode: RelayMode }
+  | { type: "typed"; id: string; seq: number; text: string }
   | { type: "spoken"; text: string; interrupted: boolean };
 
 /**
@@ -40,14 +37,13 @@ export function ledgerReducer(state: Utterance[], event: LedgerEvent): Utterance
         seq: event.seq,
         typedText: event.text,
         spokenText: null,
-        mode: event.mode,
         status: "pending",
       },
     ];
   }
 
   const index = state.findIndex((u) => u.status === "pending");
-  if (index === -1) return state; // the greeting, or an assistant turn we did not queue
+  if (index === -1) return state; // the greeting, or a turn we did not queue
 
   const utterance = state[index];
   const status: UtteranceStatus = event.interrupted
@@ -94,7 +90,19 @@ export function remainderOf(typed: string, spoken: string): string {
   return next ? typed.slice(next.index).trim() : "";
 }
 
+/** Every settled line counts: there is only one mode, and an utterance that has
+ * not come back yet is not yet evidence of anything either way. */
 export function verbatimCount(state: Utterance[]): { matched: number; total: number } {
-  const verbatim = state.filter((u) => u.mode === "verbatim" && u.status !== "pending");
-  return { matched: verbatim.filter((u) => u.status === "match").length, total: verbatim.length };
+  const settled = state.filter((u) => u.status !== "pending");
+  return { matched: settled.filter((u) => u.status === "match").length, total: settled.length };
+}
+
+/** True while at least one typed line is still waiting for the provider's
+ * record of what was actually said.
+ *
+ * This is the difference between "the agent is taking a turn" and "your words
+ * are going out", and the turn indicator is wrong without it — see
+ * lib/turn-state.ts. */
+export function awaitingReceipt(state: Utterance[]): boolean {
+  return state.some((u) => u.status === "pending");
 }
