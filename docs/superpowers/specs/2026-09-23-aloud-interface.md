@@ -249,6 +249,21 @@ The timeline follows its own tail, and stops following the moment the user scrol
 
 **The regression guard** is in `Timeline.test.tsx`: the timeline must own its own overflow. If it ever stops, the page scrolls instead and this bug returns exactly as it was.
 
+### 5.2 It was rendered and looked at — 2026-09-23
+
+This document opens by saying the interface was never opened in a browser. It has now been, so that sentence stops being true of the current build.
+
+Method: the real components server-rendered with the real compiled Tailwind output, screenshotted in headless Chrome at 1280×860 and 390×844 — every live state, the receipt states, before and after. (Playwright's browser CDN is unreachable from this host; Chrome from `dl.google.com` installs fine. Worth knowing before losing an hour to it again.)
+
+Four things were wrong on screen that no test had caught, and all four are fixed:
+
+1. **The `theirs` rings rendered as a smudge.** Filled discs scaling up over a 12px dot read as a blur, not as arrival. They are outlines now, and the dot is 10px inside a 16px box so the ring has daylight to leave from.
+2. **The `yours` sweep sat directly on the rule beneath it**, reading as two stacked lines. The indicator carries bottom padding now.
+3. **The composer could be dragged taller**, pushing the timeline out of a fixed-height console. `resize-none`.
+4. **A line still in flight was coloured `--exact`** — the green that means the provider's record came back matching. `speaking…` was claiming a receipt it did not have. Pending is `--mute` now; see `RECEIPT_TONE` in `Timeline.tsx`.
+
+Item 4 is the one worth dwelling on: it was an honesty defect sitting in the colour system, in the component whose entire job is to be honest about what was said, and it survived a full test suite because no test asserts a colour. Render the screen.
+
 ---
 
 ## 6. Out of scope for this spec

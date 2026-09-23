@@ -16,11 +16,18 @@ import type { TurnLabel } from "@/lib/turn-state";
  */
 const STATE: Record<
   TurnLabel,
-  { text: string; dot: string; tone: string; rings?: true; breathe?: true; sweep?: true }
+  { text: string; dot: string; tone: string; ring?: string; breathe?: true; sweep?: true }
 > = {
   connecting: { text: "Connecting…", dot: "bg-mute", tone: "text-mute", breathe: true },
   listening: { text: "Your turn", dot: "bg-exact", tone: "text-exact" },
-  theirs: { text: "They're speaking", dot: "bg-altered", tone: "text-altered", rings: true },
+  theirs: {
+    text: "They're speaking",
+    dot: "bg-altered",
+    tone: "text-altered",
+    // An outline, not a filled disc: a solid circle scaling up over the dot
+    // renders as a smudge, where a ring travelling outwards reads as arrival.
+    ring: "border-2 border-altered",
+  },
   yours: { text: "Speaking your words", dot: "bg-cut", tone: "text-cut", sweep: true },
 };
 
@@ -30,17 +37,21 @@ export function TurnIndicator({ label }: { label: TurnLabel }) {
     <p
       role="status"
       aria-live="polite"
-      className={`relative flex items-center gap-3 py-1 text-xl font-bold transition-colors duration-300 sm:text-2xl ${state.tone}`}
+      className={`relative flex items-center gap-3 pt-1 pb-2.5 text-xl font-bold transition-colors duration-300 sm:text-2xl ${state.tone}`}
     >
-      <span aria-hidden="true" className="relative flex h-3 w-3 shrink-0">
-        {state.rings && (
+      {/* The ring travels from the edge of this box, not from the edge of the
+        * dot: at 12px a ring starts already touching the dot and the pair reads
+        * as one smudge. The box is 16px and the dot inside it is 10px, so there
+        * is visible daylight for the ring to leave from. */}
+      <span aria-hidden="true" className="relative flex h-4 w-4 shrink-0 items-center justify-center">
+        {state.ring && (
           <>
-            <span className={`ring absolute inset-0 rounded-full ${state.dot}`} />
-            <span className={`ring ring-late absolute inset-0 rounded-full ${state.dot}`} />
+            <span className={`ring absolute inset-0 rounded-full ${state.ring}`} />
+            <span className={`ring ring-late absolute inset-0 rounded-full ${state.ring}`} />
           </>
         )}
         <span
-          className={`relative h-3 w-3 rounded-full transition-colors duration-300 ${state.dot} ${
+          className={`relative h-2.5 w-2.5 rounded-full transition-colors duration-300 ${state.dot} ${
             state.breathe ? "breathe" : ""
           }`}
         />

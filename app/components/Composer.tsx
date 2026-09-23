@@ -112,7 +112,9 @@ export function Composer({
         aria-label="Type what you want said"
         aria-describedby="correction-notice"
         placeholder="Type here. Enter speaks it."
-        className="min-h-28 rounded-lg border border-line bg-surface-up p-4 text-xl leading-relaxed text-ink placeholder:text-mute disabled:opacity-50"
+        /* resize-none: the live screen is a fixed-height console, and dragging
+         * the textarea taller would push the timeline out of it. */
+        className="min-h-28 resize-none rounded-lg border border-line bg-surface-up p-4 text-xl leading-relaxed text-ink placeholder:text-mute disabled:opacity-50"
       />
 
       {/* Every correction is visible before the line goes out, and reversible

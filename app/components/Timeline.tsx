@@ -19,6 +19,17 @@ const RECEIPT: Record<Utterance["status"], string> = {
   interrupted: "interrupted",
 };
 
+/** Colour last, and never ahead of the evidence: a line still in flight is
+ * `mute`, not the green that means the provider's own record came back matching.
+ * Showing "speaking…" in the verified colour would claim the receipt before it
+ * exists. `mismatch` is absent — it takes the filled chip instead. */
+const RECEIPT_TONE: Record<Utterance["status"], { text: string; hex: string }> = {
+  pending: { text: "text-mute", hex: "#5e5e5e" },
+  match: { text: "text-exact", hex: "#006d3b" },
+  mismatch: { text: "text-altered", hex: "#8f4300" },
+  interrupted: { text: "text-cut", hex: "#33566b" },
+};
+
 /** There is one mode, so a mismatch has one meaning: the line that went out was
  * not the line that was typed. That is the loud state and it should be loud. */
 const isAltered = (u: Utterance) => u.status === "mismatch";
@@ -61,12 +72,8 @@ function Said({ u }: { u: Utterance }) {
           {word}
         </p>
       ) : (
-        <p
-          className={`mt-3 inline-flex items-center gap-2 text-[13px] ${
-            u.status === "interrupted" ? "text-cut" : "text-exact"
-          }`}
-        >
-          <Icon status={u.status} colour={u.status === "interrupted" ? "#33566b" : "#006d3b"} />
+        <p className={`mt-3 inline-flex items-center gap-2 text-sm ${RECEIPT_TONE[u.status].text}`}>
+          <Icon status={u.status} colour={RECEIPT_TONE[u.status].hex} />
           {word}
         </p>
       )}
