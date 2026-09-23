@@ -1,13 +1,21 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CaptionPane } from "./components/CaptionPane";
+import { CallEnded } from "./components/CallEnded";
+import { CallSetup } from "./components/CallSetup";
 import { Composer } from "./components/Composer";
-import { Ledger } from "./components/Ledger";
-import { StatusBar } from "./components/StatusBar";
+import { Timeline, type HeardLine } from "./components/Timeline";
+import { TurnIndicator } from "./components/TurnIndicator";
 import { MicCapture } from "@/lib/audio/capture";
 import { ReplyPlayer } from "@/lib/audio/playback";
 import { connectWithRecovery, type CredentialsFetcher, type RelayClient } from "@/lib/relay-client";
-import { ledgerReducer, type LedgerEvent, type Utterance } from "@/lib/ledger";
+import {
+  ledgerReducer,
+  remainderOf,
+  verbatimCount,
+  type LedgerEvent,
+  type Utterance,
+} from "@/lib/ledger";
+import { INITIAL_TURN, turnLabel, turnReducer, type TurnEvent } from "@/lib/turn-state";
 import type { RelayMode } from "@/lib/sentinel";
 
 export default function Page() {
@@ -17,7 +25,10 @@ export default function Page() {
   // would otherwise silently overwrite each other in the same slot.
   const [notice, setNotice] = useState<string | null>(null);
   const [deletion, setDeletion] = useState<string | null>(null);
-  const [finals, setFinals] = useState<string[]>([]);
+  const [heard, setHeard] = useState<HeardLine[]>([]);
+  const [draft, setDraft] = useState("");
+  const [turn, setTurn] = useState(INITIAL_TURN);
+  const [ended, setEnded] = useState(false);
   const [partial, setPartial] = useState("");
   const [utterances, setUtterances] = useState<Utterance[]>([]);
   const [mode, setMode] = useState<RelayMode>("verbatim");
@@ -35,6 +46,10 @@ export default function Page() {
   // arrives with no warning event at all) and at the end of a deliberate
   // hangUp(). Only the first of those deserves an error on screen.
   const intentionalHangup = useRef(false);
+  // One monotonic counter across BOTH sides, so the timeline is a single
+  // column in real order rather than two lists stitched together. A ref, not
+  // state: it must increment inside an event handler without a render first.
+  const seq = useRef(0);
 
   const push = useCallback((event: LedgerEvent) => {
     setUtterances((state) => ledgerReducer(state, event));
@@ -46,6 +61,14 @@ export default function Page() {
     setConnecting(true);
     setError(null);
     setNotice(null);
+    setEnded(false);
+    setDeletion(null);
+    setHeard([]);
+    setUtterances([]);
+    setPartial("");
+    setDraft("");
+    setTurn(INITIAL_TURN);
+    seq.current = 0;
 
     let ctx: AudioContext | undefined;
     let player: ReplyPlayer | undefined;
@@ -77,10 +100,28 @@ export default function Page() {
           {
             onCaption: setPartial,
             onCaptionFinal: (text) => {
-              setFinals((f) => [...f, text]);
+              seq.current += 1;
+              setHeard((h) => [...h, { id: crypto.randomUUID(), seq: seq.current, text }]);
               setPartial("");
             },
-            onSpoken: (text, interrupted) => push({ type: "spoken", text, interrupted }),
+            onSpoken: (text, interrupted) => {
+              push({ type: "spoken", text, interrupted });
+              // Interface spec §2.5: hand the unspoken remainder back to the
+              // composer so pressing Enter finishes the sentence. The ledger
+              // row itself stays logged as `interrupted` — nothing is
+              // retroactively edited.
+              //
+              // Read inside the updater, not from the closure: onSpoken fires
+              // in the same tick as push(), so `utterances` here is stale.
+              if (interrupted) {
+                setUtterances((state) => {
+                  const cut = state.find((u) => u.status === "pending");
+                  if (cut) setDraft(remainderOf(cut.typedText, text));
+                  return state;
+                });
+              }
+            },
+            onTurn: (event: TurnEvent) => setTurn((t) => turnReducer(t, event)),
             onStatus: (status) => {
               setStatus(status);
               // session_expired closes the socket with no warning event first.
@@ -162,6 +203,8 @@ export default function Page() {
     await audioCtx.current?.close();
     audioCtx.current = null;
     setLive(false);
+    setEnded(true);
+    setTurn(INITIAL_TURN);
 
     if (relay?.sessionId) {
       // An offline browser, or a platform error with a non-JSON body, throws
@@ -195,42 +238,60 @@ export default function Page() {
     return () => window.removeEventListener("pagehide", onHide);
   }, []);
 
-  return (
-    <main className="mx-auto flex max-w-5xl flex-col gap-6 p-6">
-      <StatusBar status={status} deletion={deletion} notice={notice} error={error} />
+  const { matched, total } = verbatimCount(utterances);
 
-      {!live ? (
-        <button
-          onClick={startCall}
-          disabled={connecting}
-          className="self-start rounded-lg bg-emerald-500 px-5 py-3 font-semibold text-slate-900 disabled:opacity-60"
-        >
-          {connecting ? "Connecting…" : "Start a call"}
-        </button>
-      ) : (
-        <button
-          onClick={hangUp}
-          className="self-start rounded-lg bg-rose-500 px-5 py-3 font-semibold text-slate-50"
-        >
-          Hang up and delete the recording
-        </button>
+  return (
+    <main className="mx-auto flex min-h-full w-full max-w-3xl flex-col gap-8 p-6">
+      <header className="flex flex-wrap items-baseline justify-between gap-4 border-b border-line pb-4">
+        <span className="text-2xl font-bold tracking-tight text-ink">Aloud</span>
+        <span className="text-[13px] uppercase tracking-widest text-mute">{status}</span>
+      </header>
+
+      {error && (
+        <p className="rounded-lg border border-danger px-4 py-3 text-danger">{error}</p>
+      )}
+      {notice && (
+        <p className="rounded-lg border border-altered px-4 py-3 text-altered">{notice}</p>
       )}
 
-      <div className="grid gap-8 md:grid-cols-2">
-        <CaptionPane finals={finals} partial={partial} />
-        <div className="flex flex-col gap-6">
+      {!live && !ended && <CallSetup onStart={startCall} connecting={connecting} />}
+
+      {ended && (
+        <CallEnded
+          deletion={deletion}
+          matched={matched}
+          total={total}
+          onRestart={startCall}
+        />
+      )}
+
+      {live && (
+        <>
+          <TurnIndicator label={turnLabel(turn)} />
+
+          <Timeline heard={heard} utterances={utterances} partial={partial} />
+
           <Composer
+            value={draft}
+            onChange={setDraft}
             disabled={!live}
             mode={mode}
             onModeChange={setMode}
             onSend={(text, sendMode) => {
               const id = client.current!.say(text, sendMode);
-              push({ type: "typed", id, text, mode: sendMode });
+              seq.current += 1;
+              push({ type: "typed", id, seq: seq.current, text, mode: sendMode });
             }}
           />
-          <Ledger utterances={utterances} />
-        </div>
-      </div>
+
+          <button
+            onClick={hangUp}
+            className="self-start rounded-lg border border-danger px-5 py-3 font-bold text-danger hover:bg-danger hover:text-paper"
+          >
+            Hang up and delete the recording
+          </button>
+        </>
+      )}
     </main>
   );
 }

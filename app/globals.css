@@ -1,26 +1,56 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+/**
+ * White, black, and three dark accents.
+ *
+ * Not blue: InnoCaption owns #0b3797 and Rylo owns royal blue (measured from
+ * their live CSS, 2026-09-23), and PRD §7 spends its length distinguishing
+ * Aloud from exactly those two. Not purple: that is AssemblyAI's own brand,
+ * and a sponsor-coloured UI reads as a template. White and black are nobody's.
+ *
+ * Chosen after four dark and four light candidates were rendered side by side.
+ * It is the surface most likely to survive a projector in a judging room, and
+ * the one where the captions cannot be anything but legible.
+ *
+ * On a light surface the accents must go DARK to stay readable, so "altered"
+ * is a burnt orange rather than a bright amber and "exact" is a deep green.
+ * That is the palette working, not a compromise.
+ *
+ * Every value here is asserted in lib/tokens.test.ts. Change one and the test
+ * tells you what it broke — which is the whole point, because the interface
+ * this replaces shipped with 1.4:1 borders and nobody opened a browser.
+ */
+@theme {
+  --color-paper: #ffffff;
+  --color-surface: #f4f4f5;
+  --color-surface-up: #eaeaec;
+  --color-line: #4f4f4f;
+  --color-ink: #000000;
+  --color-dim: #454545;
+  --color-mute: #5e5e5e;
+  --color-exact: #006d3b;
+  --color-altered: #8f4300;
+  --color-cut: #33566b;
+  --color-danger: #a81e12;
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --font-sans: var(--font-hyper), ui-sans-serif, system-ui, sans-serif;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+/* Captions are read while someone is still talking. Never let one run the full
+ * width of a desktop window: the captioning literature converges on 45
+ * characters per line (interface spec §4.1). */
+.measure {
+  max-width: 45ch;
+}
+
+/* One visible focus treatment, everywhere. A user who cannot hear has no
+ * audible confirmation of anything, so every state change must be visible. */
+:focus-visible {
+  outline: 2px solid var(--color-ink);
+  outline-offset: 2px;
 }
