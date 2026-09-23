@@ -144,25 +144,31 @@ Both incumbents own blue. The sponsor owns purple. **Choosing either is a positi
 
 ### 4.2 Tokens, with measured contrast
 
-Deep ink with a green cast. Computed with the WCAG 2.x relative-luminance formula, 2026-09-23:
+**Light, and the hardest-contrast light there is: white, black, and three dark accents.** Chosen 2026-09-23 from four light candidates rendered side by side, after four dark ones were rejected. It is the safest surface for the thing this has to survive — a projector in a judging room — and it is the one palette where the captions cannot be anything but legible.
+
+Computed with the WCAG 2.x relative-luminance formula:
 
 | Token | Value | Role | Measured |
 |---|---|---|---|
-| `--ink` | `#07100F` | page | — |
-| `--surface` | `#0E1A19` | a line, a card | — |
-| `--surface-up` | `#182A28` | the composer, active states | 1.19:1 vs surface (elevation only) |
-| `--line` | `#4A6E6A` | **every border** | **3.42:1 vs ink** · 3.16:1 vs surface |
-| `--text` | `#E9F2EF` | captions, typed text | **16.89:1** AAA |
-| `--text-dim` | `#A9BDB9` | secondary | 9.79:1 AAA |
-| `--text-mute` | `#7D918E` | labels | 5.79:1 AA |
-| `--mint` | `#7FF3C8` | exact · live · your turn | 14.27:1 AAA |
-| `--amber` | `#D9901B` | **altered** | 7.30:1 AAA |
-| `--slate` | `#6F93A3` | interrupted, incomplete | 5.85:1 AA |
-| `--rose` | `#FF6B7F` | error, hang up | 7.03:1 AAA |
+| `--paper` | `#FFFFFF` | page | — |
+| `--surface` | `#F4F4F5` | a line, a card | — |
+| `--surface-up` | `#EAEAEC` | the composer, active states | 1.09:1 vs surface (elevation only) |
+| `--line` | `#4F4F4F` | **every border** | **8.19:1 vs paper** · 7.45:1 vs surface |
+| `--ink` | `#000000` | captions, typed text | **21.00:1** |
+| `--dim` | `#454545` | secondary | 9.59:1 AAA |
+| `--mute` | `#5E5E5E` | labels | 6.48:1 AA · 5.90:1 on surface |
+| `--exact` | `#006D3B` | spoken exactly · your turn | 6.46:1 AA |
+| `--altered` | `#8F4300` | **altered** | 7.07:1 AAA |
+| `--cut` | `#33566B` | interrupted, incomplete | 7.82:1 AAA |
+| `--danger` | `#A81E12` | error, hang up | 7.34:1 AAA |
 
-`--line` at 3.42:1 is the direct fix for WCAG 2.1 SC 1.4.11 (Non-text Contrast, 3:1 for component boundaries). The borders being replaced measure **1.4:1**.
+On a light surface the accents must go **dark** to stay readable, so "altered" is a burnt orange rather than a bright amber and "exact" is a deep green. That is the palette working, not a compromise.
 
-**Known limitation, not hidden:** `--amber` and `--slate` separate by only **1.25:1 in greyscale**. Hue therefore cannot carry status on its own — which the captioning guidance requires anyway. Every status carries **four redundant channels**: an icon, a word, a form (altered is a *filled* chip; interrupted is outline text), and colour last.
+`--line` at 8.19:1 clears WCAG 2.1 SC 1.4.11 (Non-text Contrast, 3:1 for component boundaries) with room to spare. The borders being replaced measure **1.4:1**.
+
+**Known limitation, not hidden:** the three receipt accents separate by only **1.09–1.21:1 in greyscale** — they are deliberately matched in darkness so none shouts over the others on the page, which means hue cannot carry status alone. The captioning guidance requires that anyway. Every status carries **four redundant channels**: an icon, a word, a form (altered is a *filled* chip; interrupted is outline text), and colour last.
+
+**Rejected, and why it is worth recording:** a deep ink-green dark theme, and three other dark candidates. Rejected on the user's judgement after seeing them rendered. The competitive reasoning in §4.1 still holds and still rules out blue and purple — white and black are nobody's brand.
 
 ### 4.3 Type
 

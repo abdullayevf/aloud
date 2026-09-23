@@ -1,5 +1,23 @@
 import { TARGET_SAMPLE_RATE, decodeBase64ToInt16, int16ToFloat } from "./pcm";
 
+/**
+ * How far ahead of `currentTime` the first frame of a burst is scheduled.
+ *
+ * Measured 2026-09-23 (`scripts/probe-audio.mjs`): the server streams 10 ms
+ * frames at ~1x real time with as little as 0 ms of margin. A browser has
+ * already rendered past `currentTime` by its output latency — typically
+ * 20-50 ms, more on Firefox and over Bluetooth — so a frame scheduled at
+ * `currentTime` is scheduled into the past. Web Audio starts such a source
+ * immediately instead, at the next render quantum, which means the first
+ * several frames all start in the SAME quantum, stacked on top of each other
+ * and summed. That burst is the garbled first word.
+ *
+ * 120 ms sits below the ~200 ms gap of ordinary human turn-taking, and an
+ * unintelligible first word is the worse defect. The README's
+ * time_to_first_audio_ms figure must include this, not just the 28 ms hop.
+ */
+export const MIN_LEAD_SECONDS = 0.12;
+
 export class ReplyPlayer {
   private cursor = 0;
   private scheduled = new Set<AudioBufferSourceNode>();
@@ -20,12 +38,21 @@ export class ReplyPlayer {
     source.buffer = buffer;
     source.connect(this.ctx.destination);
 
-    this.cursor = Math.max(this.cursor, this.ctx.currentTime);
+    // Math.max means the lead applies at the start of a burst and after a
+    // drain or a flush, and costs nothing mid-sentence: once the cursor runs
+    // ahead of the clock it already wins.
+    this.cursor = Math.max(this.cursor, this.ctx.currentTime + this.leadIn());
     source.start(this.cursor);
     this.cursor += buffer.duration;
 
     this.scheduled.add(source);
     source.onended = () => this.scheduled.delete(source);
+  }
+
+  /** Safari does not implement outputLatency, so the floor carries it there. */
+  private leadIn(): number {
+    const reported = (this.ctx as AudioContext & { outputLatency?: number }).outputLatency ?? 0;
+    return Math.max(MIN_LEAD_SECONDS, reported * 2);
   }
 
   /** Barge-in. Resetting the cursor alone leaves queued audio playing. */

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ReplyPlayer } from "./playback";
+import { MIN_LEAD_SECONDS, ReplyPlayer } from "./playback";
 import { encodeInt16ToBase64 } from "./pcm";
 
 function fakeContext() {
@@ -37,7 +37,8 @@ describe("ReplyPlayer", () => {
     const player = new ReplyPlayer(ctx);
     player.enqueue(chunk(24_000));
     player.enqueue(chunk(24_000));
-    expect(started).toEqual([0, 1]);
+    expect(started[0]).toBeCloseTo(MIN_LEAD_SECONDS, 6);
+    expect(started[1]).toBeCloseTo(MIN_LEAD_SECONDS + 1, 6);
   });
 
   it("never schedules in the past once the queue has drained", () => {
@@ -46,7 +47,7 @@ describe("ReplyPlayer", () => {
     player.enqueue(chunk(24_000));
     ctx.currentTime = 10;
     player.enqueue(chunk(24_000));
-    expect(started[1]).toBe(10);
+    expect(started[1]).toBeCloseTo(10 + MIN_LEAD_SECONDS, 6);
   });
 
   it("STOPS already-scheduled sources on flush, not just the cursor", () => {
@@ -65,12 +66,35 @@ describe("ReplyPlayer", () => {
     ctx.currentTime = 0.25;
     player.flush();
     player.enqueue(chunk(24_000));
-    expect(started[1]).toBe(0.25);
+    expect(started[1]).toBeCloseTo(0.25 + MIN_LEAD_SECONDS, 6);
   });
 
   it("ignores an empty chunk without scheduling anything", () => {
     const { ctx, started } = fakeContext();
     new ReplyPlayer(ctx).enqueue(encodeInt16ToBase64(new Int16Array(0)));
     expect(started).toEqual([]);
+  });
+
+  it("never starts a frame at currentTime — that is the already-rendered past", () => {
+    const { ctx, started } = fakeContext();
+    ctx.currentTime = 3;
+    new ReplyPlayer(ctx).enqueue(chunk(240)); // one 10 ms frame, as the server sends
+    expect(started[0]).toBeGreaterThan(3);
+  });
+
+  it("does not re-add the lead mid-sentence — gaps stay exactly one buffer", () => {
+    const { ctx, started } = fakeContext();
+    const player = new ReplyPlayer(ctx);
+    for (let i = 0; i < 4; i += 1) player.enqueue(chunk(240)); // 4 x 10 ms
+    expect(started[1] - started[0]).toBeCloseTo(0.01, 6);
+    expect(started[2] - started[1]).toBeCloseTo(0.01, 6);
+    expect(started[3] - started[2]).toBeCloseTo(0.01, 6);
+  });
+
+  it("uses twice the browser's reported output latency when that exceeds the floor", () => {
+    const { ctx, started } = fakeContext();
+    (ctx as unknown as { outputLatency: number }).outputLatency = 0.2; // Bluetooth-ish
+    new ReplyPlayer(ctx).enqueue(chunk(240));
+    expect(started[0]).toBeCloseTo(0.4, 6);
   });
 });
