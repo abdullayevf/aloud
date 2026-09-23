@@ -131,6 +131,16 @@ export class RelayClient {
    */
   async hangUp(): Promise<void> {
     if (!this.socket) return;
+    // The server can close first (session_expired is a bare 1008 with no
+    // warning event). session.end into a closed socket is silently discarded,
+    // so the handshake would just block for the full 3s fallback waiting for a
+    // session.ended that can never arrive — and the caller's deletion POST
+    // would sit behind it. Nothing to end: release and return.
+    if (this.socket.readyState !== 1 /* OPEN */) {
+      this.player.close();
+      this.socket = undefined;
+      return;
+    }
     const done = new Promise<void>((resolve) => {
       this.ended = resolve;
       setTimeout(resolve, 3000); // never hang the UI on a silent server

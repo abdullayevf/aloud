@@ -88,8 +88,13 @@ export default function Page() {
               // closed socket — a silent no-op — so every further line the user
               // types sits at "speaking…" forever with no sign anything is wrong.
               if (status === "disconnected" && !intentionalHangup.current) {
-                setLive(false);
                 setError("The call ended unexpectedly.");
+                // Run the real teardown, not just setLive(false): the mic stays
+                // hot, the AudioContext leaks, and — the one that matters — the
+                // provider's recording is never deleted, because only hangUp()
+                // POSTs /api/end with this session's id. Hitting the 600-second
+                // cap is a routine way for a call to end, not a rare one.
+                void hangUp();
               }
             },
             onError: setError,
