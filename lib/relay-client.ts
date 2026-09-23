@@ -1,5 +1,6 @@
 import { encodeOutbound, type RelayMode } from "./sentinel";
 import type { ReplyPlayer } from "./audio/playback";
+import type { TurnEvent } from "./turn-state";
 
 export interface RelayHandlers {
   onCaption(partial: string): void;
@@ -7,6 +8,8 @@ export interface RelayHandlers {
   onSpoken(text: string, interrupted: boolean): void;
   onStatus(status: string): void;
   onError(message: string): void;
+  /** Whose turn it is. Spec 2.1 — the largest accessibility element on screen. */
+  onTurn(event: TurnEvent): void;
 }
 
 interface Credentials {
@@ -47,6 +50,7 @@ export class RelayClient {
       // In browsers a pre-handshake failure is close code 1006 with no payload.
       if (event.code === 1006) this.handlers.onError("Could not connect. Try again.");
       this.handlers.onStatus("disconnected");
+      this.handlers.onTurn("closed");
     };
   }
 
@@ -59,10 +63,19 @@ export class RelayClient {
       case "session.ready":
         this.sessionId = message.session_id as string;
         this.handlers.onStatus("connected");
+        this.handlers.onTurn("ready");
         break;
       case "input.speech.started":
         // Snappiest barge-in: stop our own audio the moment they start talking.
         this.player.flush();
+        this.handlers.onTurn("they-start");
+        break;
+      case "input.speech.stopped":
+        // Previously dropped entirely. This is the "your turn" cue.
+        this.handlers.onTurn("they-stop");
+        break;
+      case "reply.started":
+        this.handlers.onTurn("reply-start");
         break;
       case "transcript.user.delta":
         // text is the FULL transcript so far for this item. Replace it.
@@ -93,6 +106,7 @@ export class RelayClient {
         break;
       case "reply.done":
         if (message.status === "interrupted") this.player.flush();
+        this.handlers.onTurn("reply-end");
         break;
       case "session.error":
         this.handlers.onError(`${message.code}: ${message.message}`);

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { RelayClient, connectWithRecovery } from "./relay-client";
+import type { TurnEvent } from "./turn-state";
 
 class FakeSocket {
   static last: FakeSocket;
@@ -29,6 +30,7 @@ function client() {
     onSpoken: vi.fn(),
     onStatus: vi.fn(),
     onError: vi.fn(),
+    onTurn: vi.fn(),
   };
   const audio = { enqueue: vi.fn(), flush: vi.fn(), close: vi.fn() };
   const c = new RelayClient(
@@ -163,6 +165,7 @@ function recoveryHandlers() {
     onSpoken: vi.fn(),
     onStatus: vi.fn(),
     onError: vi.fn(),
+    onTurn: vi.fn(),
   };
 }
 
@@ -393,5 +396,31 @@ describe("connectWithRecovery", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("RelayClient turn events", () => {
+  it("reports every turn event the screen needs, in order", () => {
+    const turns: TurnEvent[] = [];
+    const { c, handlers } = client();
+    handlers.onTurn.mockImplementation((e: TurnEvent) => turns.push(e));
+    void c.connect();
+    FakeSocket.last.onopen?.();
+
+    FakeSocket.last.emit({ type: "session.ready", session_id: "s1" });
+    FakeSocket.last.emit({ type: "reply.started" });
+    FakeSocket.last.emit({ type: "input.speech.started" });
+    FakeSocket.last.emit({ type: "input.speech.stopped" });
+    FakeSocket.last.emit({ type: "reply.done", status: "completed" });
+
+    expect(turns).toEqual(["ready", "reply-start", "they-start", "they-stop", "reply-end"]);
+  });
+
+  it("reports the close so a dropped call cannot keep showing a live turn", () => {
+    const { c, handlers } = client();
+    void c.connect();
+    FakeSocket.last.onopen?.();
+    FakeSocket.last.onclose?.({ code: 1006 });
+    expect(handlers.onTurn).toHaveBeenCalledWith("closed");
   });
 });
