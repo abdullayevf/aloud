@@ -1,6 +1,6 @@
 # TASKS — the calendar to 2026-09-30
 
-Deadline: **2026-09-30**. Today is **2026-09-22**. Nine days, one of which is already spent on the pivot.
+Deadline: **2026-09-30**. Written on **2026-09-22**; last updated **2026-09-24**. The build ran ahead of this calendar — Days 4–7 landed by 23 Sep, so everything below the line is verification and submission, not construction.
 
 Plan tasks referenced below are from [`superpowers/plans/2026-09-22-aloud-implementation.md`](superpowers/plans/2026-09-22-aloud-implementation.md).
 
@@ -27,27 +27,29 @@ The gates did not go to plan and that was the point of running them early. G1 fa
 
 **Two days of slack exist. Spend them on Task 9 and the partition risk, not on scope.**
 
-### Day 4 — Thu 25 Sep · audio
+### Day 4 — audio ✅ done early, 23 Sep
 Plan **Tasks 6–7**: PCM codec, capture worklet, playback with a barge-in flush that actually stops scheduled sources.
 
 *Done when:* you can hear the greeting in the browser and talking over the agent stops its audio mid-word.
 
-### Day 5 — Fri 26 Sep · the receipt and the socket
+### Day 5 — the receipt and the socket ✅ done early, 23 Sep
 Plan **Tasks 8–9**: the ledger reducer and the relay client.
 
 *Done when:* the unit suite is green and a scripted call types, speaks, and reports a match.
 
-### Day 6 — Sat 27 Sep · the screen
+### Day 6 — the screen ✅ done early, 23 Sep
 Plan **Task 10**: captions, composer, quick phrases, ledger, turn bar. (The assistant toggle that was listed here was cut on 2026-09-23 — PRD §4.5.)
 
 *Done when:* a stranger could place a call with no instructions.
 
-### Day 7 — Sun 28 Sep · deletion, browsers, latency
+### Day 7 — deletion, browsers, latency · **partly done**
 Plan **Tasks 11–12**: `/api/end`, the deletion banner, Chrome/Firefox/Safari, the expiry warning, and one measured `time_to_first_audio_ms` in the README.
 
-*Done when:* the recording is gone and the browser matrix in `docs/BROWSER-NOTES.md` is filled in — **including the Firefox echo-cancellation check.**
+Deletion, the expiry warning and the hardening shipped. **Still open: the browser matrix in `docs/BROWSER-NOTES.md` is PENDING in every cell, and the measured `time_to_first_audio_ms` is not in the README.** Both need a human at a keyboard.
 
-### Day 8 — Mon 29 Sep · rehearse and record
+*Done when:* the recording is gone and the browser matrix is filled in — **including the Firefox echo-cancellation check.**
+
+### Day 8 — rehearse and record · **the video is the critical path**
 Plan **Task 13** part one: re-scan the leaderboard, re-check the live submission form, write the copy, record the video. Force a deliberate ledger mismatch on camera if you can — a receipt that can fail is worth more than one that always passes.
 
 *Done when:* the video exists as a file, under the real limits from the real form.
