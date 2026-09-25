@@ -155,6 +155,8 @@ export default function Page() {
               // clock. Without clearing here, inkSplit would keep reading
               // the previous reply's words during that window and ink them
               // onto the new pending row — see caption-timeline.ts.
+              // The onSend handler below clears it too, for the window
+              // between one reply ending and the next reply.started arriving.
               if (event === "reply-start") timeline.current = null;
               setTurn((t) => turnReducer(t, event));
             },
@@ -296,23 +298,59 @@ export default function Page() {
   // machine that is also doing live audio capture and playback.
   useEffect(() => {
     if (!live) return;
+    // The ink is new, continuous, 60Hz motion, and globals.css's
+    // reduced-motion block cannot reach it: that rule set can stop a CSS
+    // transition, but this movement is React re-rendering different text
+    // every frame. VoiceTrace already reads this preference for the same
+    // reason. Read once per effect run, like it does — a preference does not
+    // change frame to frame, and matchMedia is absent in some test
+    // environments, hence the optional calls.
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+
     let frame = 0;
     const tick = () => {
       const activePlayer = playerRef.current;
       const pending = utterances.find((u) => u.status === "pending");
       const elapsed = activePlayer?.elapsedMs() ?? null;
-      if (!pending || elapsed === null) {
+
+      // Hold whatever this row already has, or clear. The distinction that
+      // matters is `prev.id === pending.id`: ink this row earned from its own
+      // reply, versus no ink at all. A row that has never inked stays null and
+      // Timeline falls back to the plain typedText, which is the correct
+      // rendering both before the first delta burst and under reduced motion.
+      const holdOrClear = (row: Utterance) =>
+        setInk((prev) => (prev && prev.id === row.id ? prev : null));
+
+      if (reducedMotion) {
+        // Never animate. The pending row renders its plain typed text; settled
+        // rows do not use `ink` at all and are untouched.
         setInk((prev) => (prev === null ? prev : null));
+      } else if (!pending) {
+        setInk((prev) => (prev === null ? prev : null));
+      } else if (elapsed === null) {
+        // Barge-in. flush() stops the scheduled audio and nulls the player's
+        // reply origin, so elapsedMs() goes null mid-sentence — correct, and
+        // playback.test.ts locks it. What was wrong was the consequence here:
+        // clearing `ink` sent Timeline to its fallback, which renders the
+        // ENTIRE typed line in the solid already-spoken treatment. At the one
+        // moment the user was cut off, the screen claimed every word got out.
+        // Spec §5/§6 say the ink freezes at the word being spoken, so freeze:
+        // keep the last split this row earned. It clears on its own when the
+        // row settles (`pending` moves on), when a new line is sent (above),
+        // and when a new call starts.
+        holdOrClear(pending);
       } else {
         const split = inkSplit(timeline.current, elapsed);
         // Both halves empty means no timeline for this row yet (cleared on
         // reply-start, not yet refilled by this reply's own deltas) — not
-        // "the reply is an empty string". Falling through to `null` here
-        // matters: Timeline's fallback to the plain typedText only fires
-        // when `ink` is null, so an object with two empty strings would
-        // render a blank row instead for the ~365ms before deltas arrive.
+        // "the reply is an empty string". A row that has not inked yet falls
+        // through to `null`, because Timeline's fallback to the plain
+        // typedText only fires when `ink` is null and an object with two
+        // empty strings would render a blank row for the ~365ms before the
+        // deltas arrive. A row that HAS inked holds what it has instead of
+        // snapping back to the full solid line.
         if (split.spoken === "" && split.unspoken === "") {
-          setInk((prev) => (prev === null ? prev : null));
+          holdOrClear(pending);
         } else {
           setInk((prev) =>
             prev && prev.id === pending.id && prev.spoken === split.spoken && prev.unspoken === split.unspoken
@@ -425,6 +463,29 @@ export default function Page() {
             onSend={(text) => {
               const id = client.current!.say(text);
               seq.current += 1;
+              // Before the row exists, not after. `timeline.current` was only
+              // ever cleared on "reply-start", and this reply's reply.started
+              // is at least a network round trip away (238-377ms measured) —
+              // longer still if the previous reply is mid-sentence, since the
+              // API takes its next turn only after the hearing party stops.
+              // For that whole window the ink effect above finds this NEW row
+              // `pending` (the previous one having settled) with the OLD
+              // reply's word table still loaded, and with the old clock past
+              // its last word the split is
+              // { spoken: <the entire previous sentence>, unspoken: "" } —
+              // not the empty-halves case the effect guards. The new row would
+              // render the previous line's words, in the solid "already
+              // spoken" ink, as a statement about what is being said in the
+              // user's name right now. Clearing both here makes a stale table
+              // unreachable from a row it does not belong to.
+              //
+              // `inkSplit`'s `expectedReplyId` is the structural half of the
+              // same defence and stays where it is: it refuses a timeline
+              // belonging to a superseded reply even if one is somehow still
+              // loaded. Two independent guards, because the failure they
+              // prevent is the screen lying about the user's own words.
+              timeline.current = null;
+              setInk(null);
               push({ type: "typed", id, seq: seq.current, text });
             }}
           />
