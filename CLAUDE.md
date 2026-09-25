@@ -21,7 +21,7 @@ Built for the **AssemblyAI Voice Agent Hackathon** (lablab.ai × AssemblyAI, 1�
 
 ## Status / stack
 
-**Next.js 15 (App Router) + TypeScript (strict) + Tailwind + Vitest, deployed on Vercel.** Scaffolded and live at `https://aloud-implementation.vercel.app`. Plan Tasks 1–5 are done and all five validation gates are closed; Tasks 6–13 (browser audio, ledger, relay client, screen, deletion, submission) are the remaining work.
+**Next.js 15 (App Router) + TypeScript (strict) + Tailwind + Vitest, deployed on Vercel.** Scaffolded and live at `https://aloud-implementation.vercel.app` (redeployed 2026-09-25). Plan Tasks 1–13 and the 2026-09-25 kinetic-caption work are done; all five validation gates are closed and re-confirmed against the 2026-09-25 deployment. What is genuinely left is **not code**: the submission demo video, and a human re-test of the browser matrix (`docs/BROWSER-NOTES.md`, reset to PENDING on 2026-09-25 after the capture worklet, playback, caption timeline and live screen all changed).
 
 ```
 npm test              vitest run
@@ -91,6 +91,7 @@ These exist because the previous product died of a false originality claim.
 - Never `new AudioContext({ sampleRate: 24000 })`. Firefox honours it and silently loses echo cancellation (the agent then interrupts itself every reply); Safari ignores it and silently garbles the audio. Resample inside the worklet instead.
 - `input.audio` carries audio in `audio`; `reply.audio` carries it in **`data`**.
 - `transcript.user.delta.text` is the **full transcript so far** — replace, never concatenate.
+- Two different conventions on the two delta events, and mixing them up silently corrupts the caption: `transcript.agent.delta` carries the word in **`delta`**, one word at a time, **appended**; `transcript.user.delta` carries **`text`**, the full transcript so far, **replaced**. Measured 2026-09-25 (`docs/research/gate-results-2026-09-22.md`): the whole `transcript.agent.delta` word-timing timeline for a reply arrives as **one ~4 ms burst**, about 365 ms after the first `reply.audio` — a complete map of the reply delivered up front, not a stream that tracks playback in real time.
 - On barge-in, `stop()` the already-scheduled `AudioBufferSourceNode`s. Resetting the playback cursor alone leaves stale audio playing — on a relay that means unauthorised words still coming out of the phone.
 - `expires_in_seconds` is **required** on the token endpoint, and tokens are single-use — mint a fresh one per connection, including every resume.
 - `Bearer` prefix on `agents.assemblyai.com`; **no** prefix on `api.assemblyai.com`.

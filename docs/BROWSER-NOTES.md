@@ -1,9 +1,10 @@
 # Cross-Browser Compatibility Matrix
 
-**Tested manually by the project owner on 2026-09-25**, against the live Vercel
-deployment with a real microphone and a real phone on speaker. Versions were not
-recorded at the time; the procedure is Task 12 Step 1 of
-`docs/superpowers/plans/2026-09-22-aloud-implementation.md`.
+**Reset 2026-09-25.** The previous pass in this file (Chrome/Safari PASS, Firefox
+PASS-with-a-stutter) was measured against a build **three commits stale** — the
+capture worklet, playback, the caption timeline and the whole live screen have
+all changed since (the 2026-09-25 kinetic-caption work). Those results describe
+code nobody is submitting, so they are reset rather than carried forward.
 
 ## Test Procedure
 
@@ -14,14 +15,19 @@ Each row tests:
 4. Mic captions appear
 5. Barge-in stops audio
 6. Hangup deletes recording (confirmed on screen)
+7. **New:** the voice trace renders while the agent speaks and stays flat in silence
+8. **New:** the word ink advances in step with the voice, and freezes in place on a barge-in
 
-| Browser | Version | Greeting | Text Spoken | Ledger Match | Mic Captions | Barge-in Stops | Deletion Confirmed | Notes |
-|---------|---------|----------|-------------|--------------|--------------|-----------------|--------------------|----|
-| Chrome | not recorded | PASS | PASS | PASS | PASS | PASS | PASS | |
-| Firefox | not recorded | PASS, with a caveat | PASS | PASS | PASS | PASS | PASS | **Stutter on the first call of a session, intermittently.** Not reproduced on subsequent calls in the same session. Cause not yet diagnosed — see below. |
-| Safari | not recorded | PASS | PASS | PASS | PASS | PASS | PASS | |
+| Browser | Version | Greeting | Text Spoken | Ledger Match | Mic Captions | Barge-in Stops | Deletion Confirmed | Voice Trace | Word Ink | Notes |
+|---------|---------|----------|-------------|--------------|--------------|-----------------|--------------------|--------------|----------|----|
+| Chrome | not recorded | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | |
+| Firefox | not recorded | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | See "Firefox: the first-call stutter" below — prior evidence, not yet re-confirmed against this build. |
+| Safari | not recorded | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | |
 
 ## Firefox: the first-call stutter
+
+**Prior evidence, kept intact from the pre-reset pass** — not reproduced against
+the current build, and not to be treated as confirmed for it either.
 
 Reported as intermittent, first call only, clearing on later calls in the same
 session. **Not diagnosed** — no capture, no measurement, no root cause. It is
@@ -43,6 +49,7 @@ the first `AudioBufferSourceNode` being scheduled before the context has settled
 so the lead-in added in `46b807c` is too short on a cold Firefox context. That is
 **UNVERIFIED** — a hypothesis to test, not a finding.
 
-**Impact on the submission: low.** It is intermittent, cosmetic, and clears on
-its own. If the demo video is recorded in Chrome it will not appear at all. Worth
-one timed experiment if the schedule allows; not worth risking the deadline.
+**Impact on the submission: low.** It is intermittent, cosmetic, and (previously)
+cleared on its own. If the demo video is recorded in Chrome it will not appear at
+all. Worth one timed experiment if the schedule allows; not worth risking the
+deadline.

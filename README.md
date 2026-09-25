@@ -56,6 +56,14 @@ you type ─► browser ─► AssemblyAI ─► POST /api/llm/v1/chat/completio
 
 One socket. One provider. No database. On hangup, `DELETE /v1/sessions/{id}`.
 
+## Measured latency
+
+`reply.create` → first `reply.audio`, measured 2026-09-25 against `https://aloud-implementation.vercel.app` with `node scripts/gate-probe.mjs` (gate G3), three turns in one session: **377 ms, 331 ms, 238 ms · mean 315 ms**. That is a per-turn figure from three samples, not a benchmark, and it is the full round trip — it **includes AssemblyAI's own speech synthesis**, not just our hop. Two other numbers feed into it and are not the same thing: our endpoint's own turnaround was measured separately at **~29 ms** (2026-09-23, `docs/research/gate-results-2026-09-22.md`), and the browser adds `MIN_LEAD_SECONDS`, a deliberate **120 ms** scheduling lead (`lib/audio/playback.ts`) — without it, the first several audio frames get scheduled into the past and stack into one garbled burst. Do not quote 315 ms as "our latency" without saying what's inside it.
+
+## Inspiration: Caption with Intention
+
+The word-by-word ink on the caption line borrows its grammar from [Caption with Intention](https://www.captionwithintention.org/) (Chicago Hearing Society, a RAISE partner of the Academy) — a **human-authored, deliberately non-automated** system for post-produced film, where a captioner maps colour to speaker, animation to delivery, font size to volume, font weight to pitch. Aloud drives the same visual grammar from live machine signal instead of a captioner's judgment, and implements **only the channels it can measure**: amplitude from our own microphone, and word timings from the provider's transcript. Pitch and emotion are deliberately absent — rendering inferred feeling would put emotion into the hearing party's mouth, the mirror image of rewriting the user's words. Credited as inspiration; Aloud is not affiliated with Caption with Intention and does not claim or imply its endorsement.
+
 ## Status
 
 **Built and deployed.** Tasks 1–13 of the [implementation plan](docs/superpowers/plans/2026-09-22-aloud-implementation.md) are done — browser audio, the verbatim pass-through, the ledger, the relay client, the call screen and the deletion-on-hangup path — and the app is live at `https://aloud-implementation.vercel.app`.

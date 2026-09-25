@@ -80,6 +80,18 @@ Method unchanged: `curl -sL "https://lablab.ai/ai-hackathons/assemblyai-voice-ag
 
 **Conclusion for the PRD §7 originality claim:** the "101 submissions and zero accessibility entries" line should be updated to reflect this second measurement — the field has grown to 110 submissions (top-50-of-110 visible) and the accessibility/disability category is still empty. No late entrant has landed in the visible slice. **One more re-scan close to the 2026-09-30 deadline is still worth doing** — 77 drafts remain unsubmitted, and any of them could land in the category.
 
+### 4.2 Re-scan — measured 2026-09-25 (Task 8 Step 6)
+
+Method unchanged: `curl -sL "https://lablab.ai/ai-hackathons/assemblyai-voice-agent-hackathon/live"`, unescape `\"`, regex the `{"title":…,"slug":…,"teamName":…,"teamSlug":…,"likes":…,"imageLink":…,"shortDescription":…}` objects out of the embedded React-flight payload. 50 objects extracted cleanly (the field order and shape are unchanged from the 2026-09-22/23 scans). Same caveat as both prior scans: only the **top 50** submissions are exposed with title/description/likes — the rest of the field is not readable this way.
+
+**Scale, two days later:** the dashboard's own summary block gives exact totals this time (`initialData` in the page payload), not just the visible-50 count: **148 submissions** (▲ +38 from the 110 measured 2026-09-23) · **77 drafts in progress** (unchanged) · **1,122 teams** (▲ +85) · **3,773 participants** (▲ +187) · **111 total likes** across all submissions. The page's own 24h deltas: +20 submissions, +39 teams, +81 participants, +2 drafts in the 24 hours before this scrape.
+
+**Search run again** over all 50 exposed titles and `shortDescription` fields, same term list as the 2026-09-23 pass plus a few additions: *deaf, hard of hearing, hearing, accessib, sign language, caption, disab, relay, nonverbal, non-speaking, aac, speech disability, blind, stutter, aphasia*.
+
+**Result: zero matches, on any term, in either field.** Not even the `Relay: Voice Operations for Field Work` false positive from the 2026-09-23 scan still appears in the current top 50 — the field has moved on enough in two days that even that near-miss dropped out of the visible slice. **The leaders by likes have changed since 2026-09-23**: SAUTI AI: Voice-to-Action (11) leads, followed by a tie between Siberia Voice Agent (9) and CyberVoice AI (9), then KiaOra Dispatch (5) and MockMate — AI Voice Interview Coach (5).
+
+**Conclusion:** with 38 more submissions landed since the last scan and the field having grown to 148 total (top-50-of-148 visible), the accessibility/disability category is **still empty** in the readable slice. This is the third consecutive scan (2026-09-22, 2026-09-23, 2026-09-25) with the same result — worth stating plainly rather than treating as settled: 98 submissions and an unknown number of the 77 drafts remain unread by this method, and any one of them could contain the category. If a scan close to the 2026-09-30 deadline turns up a hit, say so; do not assume the category stays empty by default.
+
 ## 5. Prize pool
 
 $10,000 total ($5k cash + $5k in AssemblyAI credits), per the [hackathon page](https://lablab.ai/ai-hackathons/assemblyai-voice-agent-hackathon). Registration stays open for the whole 1–30 September build window.

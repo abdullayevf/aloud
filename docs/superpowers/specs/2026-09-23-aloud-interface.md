@@ -111,6 +111,8 @@ The ledger is not rewritten: fragment one stays logged as `interrupted`, and the
 
 `remainderOf(typed, spoken)` is a prefix match on the normalised forms (`lib/ledger.ts` already exports `normalizeForCompare`). If the spoken fragment is not a prefix of what was typed — TTS dropped a word, or the transcript came back reordered — **return the whole typed line**, not a guess. Better to offer the user their entire sentence again than a silently wrong fragment of it.
 
+The handoff itself does not live in `app/page.tsx`: `ledgerReducer` (`lib/ledger.ts`) computes the remainder inside the reducer, on the same event that marks the row `interrupted`, and stores it as `Utterance.remainder`. `page.tsx` and `Composer.tsx` only read that field — they do not compute it. An earlier version of this mechanism lived in a second updater in `page.tsx` and, because that updater never actually ran, silently dropped every remainder on the floor; moving the computation into the reducer closed that gap.
+
 ### 2.6 Typing fast produces typos, and the line is read out as typed
 
 **Added 2026-09-23.** Someone typing at conversational speed into a live call makes transposition errors — `teh`, `adn`, `woudl` — and the relay reads them out exactly as typed, because reading them out exactly as typed is the product. The result is a line that goes out sounding wrong through no fault of the pass-through.

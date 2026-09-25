@@ -42,12 +42,15 @@ Plan **Task 10**: captions, composer, quick phrases, ledger, turn bar. (The assi
 
 *Done when:* a stranger could place a call with no instructions.
 
-### Day 7 — deletion, browsers, latency · **partly done**
+### Day 7 — deletion, browsers, latency ✅ done, then re-opened
 Plan **Tasks 11–12**: `/api/end`, the deletion banner, Chrome/Firefox/Safari, the expiry warning, and one measured `time_to_first_audio_ms` in the README.
 
-Deletion, the expiry warning and the hardening shipped. **Still open: the browser matrix in `docs/BROWSER-NOTES.md` is PENDING in every cell, and the measured `time_to_first_audio_ms` is not in the README.** Both need a human at a keyboard.
+Deletion, the expiry warning, the hardening, and the measured latency figure are all in the README (2026-09-25: `reply.create` → first `reply.audio`, 377/331/238 ms, mean 315 ms — see README "Measured latency"). The browser matrix *was* filled in once, then **reset to PENDING in every cell on 2026-09-25**, deliberately: the 2026-09-25 kinetic-caption work (see below) changed the capture worklet, playback, the caption timeline and the whole live screen, so the earlier pass described code nobody is submitting. It needs a fresh human pass, now also covering the voice trace and the word ink.
 
-*Done when:* the recording is gone and the browser matrix is filled in — **including the Firefox echo-cancellation check.**
+*Done when:* the recording is gone and the browser matrix is filled in **against the current build** — including the Firefox echo-cancellation check, the voice trace, and the word ink.
+
+### Day 7.5 — kinetic captions ✅ done, 25 Sep
+The voice trace (amplitude from our own microphone) and the word ink (word timings from `transcript.agent.delta`, freezing in place on a barge-in) shipped, per `docs/superpowers/specs/2026-09-25-kinetic-captions-design.md` and the matching implementation plan. Credited to Caption with Intention (Chicago Hearing Society) as inspiration in the README, with only the measurable channels implemented — no pitch, no emotion.
 
 ### Day 8 — rehearse and record · **the video is the critical path**
 Plan **Task 13** part one: re-scan the leaderboard, re-check the live submission form, write the copy, record the video. Force a deliberate ledger mismatch on camera if you can — a receipt that can fail is worth more than one that always passes.
