@@ -98,6 +98,15 @@ export class RelayClient {
         this.player.enqueue(message.data as string);
         break;
       case "transcript.agent.delta":
+        // Same idea as the greeting swallow below, applied earlier in the
+        // same sentence: the greeting's word-by-word deltas arrive BEFORE
+        // its final transcript.agent, so gating on the very flag that event
+        // sets would be too late — by the time it flips, the greeting's
+        // words have already reached onSpokenWord and inked onto whatever
+        // row the user typed while it was still playing. Gate on the same
+        // flag here too, so the suppression covers the deltas as well as
+        // the transcript they precede.
+        if (!this.greetingConsumed) break;
         this.handlers.onSpokenWord(
           message.reply_id as string,
           message.delta as string,

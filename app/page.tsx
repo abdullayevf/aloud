@@ -55,7 +55,15 @@ export default function Page() {
   // second, and the transcript.agent.delta burst lands ~18 words inside 4ms.
   // Both are read by a render loop (the canvas, the ink effect below), not
   // by reconciliation.
-  const trace = useRef(new LevelTrace(160));
+  //
+  // Lazily initialized: `useRef(new LevelTrace(160))` would construct a new
+  // LevelTrace — and its backing Float32Array(160) — on EVERY render, not
+  // just the first, since the argument expression still runs each time.
+  // That used to be free when this component barely re-rendered; it no
+  // longer is, now that setInk (below) re-renders it on every ink change.
+  const traceRef = useRef<LevelTrace | null>(null);
+  if (traceRef.current === null) traceRef.current = new LevelTrace(160);
+  const trace = traceRef.current;
   const timeline = useRef<ReplyTimeline | null>(null);
   // hangUp() only closes the player and the socket — without a handle on the
   // AudioContext itself it leaks one per successful call, and Chrome caps a
@@ -92,7 +100,7 @@ export default function Page() {
     // A stale trace or timeline bleeding from the previous call into a new
     // one is a real defect — the meter would open already lit, and a word
     // could ink against another call's clock.
-    trace.current.clear();
+    trace.clear();
     timeline.current = null;
     setInk(null);
 
@@ -140,7 +148,16 @@ export default function Page() {
               // state the other has already changed.
               push({ type: "spoken", text, interrupted });
             },
-            onTurn: (event: TurnEvent) => setTurn((t) => turnReducer(t, event)),
+            onTurn: (event: TurnEvent) => {
+              // reply.started fires before this reply's own deltas land
+              // (~365ms, measured) but AFTER player.beginReply() has
+              // already made elapsedMs() non-null against the NEW reply's
+              // clock. Without clearing here, inkSplit would keep reading
+              // the previous reply's words during that window and ink them
+              // onto the new pending row — see caption-timeline.ts.
+              if (event === "reply-start") timeline.current = null;
+              setTurn((t) => turnReducer(t, event));
+            },
             // Held in a ref, not state: transcript.agent.delta lands as
             // ~18 words inside a 4ms burst. The ink effect below samples
             // this timeline against the playback clock once per animation
@@ -184,7 +201,7 @@ export default function Page() {
         // sendAudio is a no-op before session.ready — audio sent earlier is discarded.
         await mic.start(
           (audio) => relay.sendAudio(audio),
-          (level) => trace.current.push(level),
+          (level) => trace.push(level),
         );
         capture.current = mic;
         setLive(true);
@@ -288,11 +305,21 @@ export default function Page() {
         setInk((prev) => (prev === null ? prev : null));
       } else {
         const split = inkSplit(timeline.current, elapsed);
-        setInk((prev) =>
-          prev && prev.id === pending.id && prev.spoken === split.spoken
-            ? prev
-            : { id: pending.id, ...split },
-        );
+        // Both halves empty means no timeline for this row yet (cleared on
+        // reply-start, not yet refilled by this reply's own deltas) — not
+        // "the reply is an empty string". Falling through to `null` here
+        // matters: Timeline's fallback to the plain typedText only fires
+        // when `ink` is null, so an object with two empty strings would
+        // render a blank row instead for the ~365ms before deltas arrive.
+        if (split.spoken === "" && split.unspoken === "") {
+          setInk((prev) => (prev === null ? prev : null));
+        } else {
+          setInk((prev) =>
+            prev && prev.id === pending.id && prev.spoken === split.spoken && prev.unspoken === split.unspoken
+              ? prev
+              : { id: pending.id, ...split },
+          );
+        }
       }
       frame = requestAnimationFrame(tick);
     };
@@ -384,7 +411,7 @@ export default function Page() {
               * During the user's own reply the trace is quiet while the turn
               * is still theirs — two different facts, both needed, merged
               * into one element so the vertical budget does not grow. */}
-            <VoiceTrace trace={trace.current} live={live} />
+            <VoiceTrace trace={trace} live={live} />
           </div>
 
           <Timeline heard={heard} utterances={utterances} partial={partial} ink={ink} />

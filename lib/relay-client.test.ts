@@ -96,9 +96,15 @@ describe("RelayClient", () => {
     // Measured shape 2026-09-25: field is `delta` (NOT `text`), one word per
     // event including its trailing space, with start_ms/end_ms offsets into the
     // reply audio. Reading `text` here yields undefined.
+    //
+    // The greeting's own deltas are suppressed (see the test below), so burn
+    // its transcript.agent first — same reason "reports the spoken receipt"
+    // does — or this would be asserting on a delta this client is supposed
+    // to be dropping.
     const { c, handlers } = client();
     void c.connect();
     FakeSocket.last.onopen?.();
+    FakeSocket.last.emit({ type: "transcript.agent", text: "greeting" });
     FakeSocket.last.emit({
       type: "transcript.agent.delta",
       reply_id: "resp_1",
@@ -108,6 +114,42 @@ describe("RelayClient", () => {
       end_ms: 312,
     });
     expect(handlers.onSpokenWord).toHaveBeenCalledWith("resp_1", "I ", 296, 312);
+  });
+
+  it("suppresses agent deltas that arrive before the greeting's transcript.agent, forwarding only later ones", () => {
+    // The greeting is spoken automatically at session.ready and its
+    // word-by-word deltas arrive BEFORE its own final transcript.agent —
+    // the event whose arrival is what flips greetingConsumed. A line typed
+    // while the greeting is still playing must never have the greeting's
+    // words ink onto it, so onSpokenWord is gated on the same flag as the
+    // transcript.agent swallow itself, not just the event that sets it.
+    const { c, handlers } = client();
+    void c.connect();
+    FakeSocket.last.onopen?.();
+    FakeSocket.last.emit({ type: "session.ready", session_id: "sess_1" });
+    FakeSocket.last.emit({
+      type: "transcript.agent.delta",
+      reply_id: "greeting_1",
+      delta: "Hello ",
+      start_ms: 0,
+      end_ms: 200,
+    });
+    expect(handlers.onSpokenWord).not.toHaveBeenCalled();
+
+    // The greeting's own transcript.agent lands, consuming it.
+    FakeSocket.last.emit({ type: "transcript.agent", text: "Hello, you're on a relay call." });
+    expect(handlers.onSpokenWord).not.toHaveBeenCalled();
+
+    // A real reply's deltas, after the greeting, are forwarded normally.
+    FakeSocket.last.emit({
+      type: "transcript.agent.delta",
+      reply_id: "resp_1",
+      delta: "I ",
+      start_ms: 296,
+      end_ms: 312,
+    });
+    expect(handlers.onSpokenWord).toHaveBeenCalledWith("resp_1", "I ", 296, 312);
+    expect(handlers.onSpokenWord).toHaveBeenCalledTimes(1);
   });
 
   it("reports the spoken receipt with its interrupted flag", () => {
