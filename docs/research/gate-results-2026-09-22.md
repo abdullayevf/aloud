@@ -409,3 +409,72 @@ retry layer above the SDK's own three attempts — it would explain the ~13 s
 before it gave up — but that reading is **UNVERIFIED**. What is verified is the
 attempt-number ceiling of 2 and, more importantly, that nothing was ever spoken
 twice.
+
+---
+
+## `transcript.agent.delta` — measured 2026-09-25 (gate §0 for kinetic captions)
+
+**Question.** The kinetic-caption design inks a sentence word by word as it is
+actually spoken, and freezes that ink at the exact word an interruption landed
+on. That rests on `transcript.agent.delta` arriving on the custom-LLM path with
+real word timings. `docs/assemblyai-integration.md` line 655 claims it does;
+nothing in this repo had ever measured it — `scripts/gate-probe.mjs` explicitly
+filters these events out of its own log.
+
+**Method.** Throwaway `scripts/delta-probe.mjs`, run against the live deployment
+with a purpose-built throwaway agent pointing at the real `/api/llm/v1`. One
+9-word-plus utterance containing a phone number, spoken via
+`reply.create { instructions }`. Every `transcript.agent.delta` captured as a
+whole payload — not a projection of assumed fields, because the shape was the
+question. Agent deleted on close.
+
+**Result: deltas arrive, and they carry word-level timings.**
+
+```
+count: 18
+union of keys: reply_id, item_id, delta, start_ms, end_ms, type, timestamp
+
++713ms (audio+363ms) {"delta":"I ",          "start_ms":296,  "end_ms":312}
++714ms (audio+364ms) {"delta":"would ",      "start_ms":360,  "end_ms":457}
++714ms (audio+364ms) {"delta":"like ",       "start_ms":457,  "end_ms":619}
++714ms (audio+364ms) {"delta":"to ",         "start_ms":699,  "end_ms":780}
++714ms (audio+364ms) {"delta":"reschedule ", "start_ms":780,  "end_ms":1297}
++714ms (audio+364ms) {"delta":"Thursday's ", "start_ms":1346, "end_ms":1765}
+...
++717ms (audio+367ms) {"delta":"is ",         "start_ms":7726, "end_ms":7758}
++717ms (audio+367ms) {"delta":"fine.",       "start_ms":7887, "end_ms":8064}
+```
+
+**The finding that shapes the design: the whole timeline arrives as one burst,
+before the audio has played.** All 18 deltas landed inside a 4 ms window
+(+713 ms to +717 ms after `reply.create`, ~365 ms after the first
+`reply.audio`), while the timings they carry span 296 ms → 8064 ms of reply
+audio. They are **not** a stream that tracks playback.
+
+That is better than a stream for this purpose. We receive the complete
+word→time map up front, so the ink is driven **entirely by our own playback
+clock** (`ctx.currentTime` minus reply start) against a table we already hold.
+Nothing about the rendering depends on when deltas arrive, and there is no
+partial-timeline state to manage.
+
+**Shape notes, all load-bearing:**
+
+- The field is **`delta`**, not `text`. Reading `msg.text` here yields
+  `undefined` — measured, not assumed.
+- Each delta is **one word, including its trailing space**. They are *not*
+  cumulative: `last.startsWith(first)` is `false`. Concatenating every `delta`
+  in arrival order reconstructs the final `transcript.agent` text exactly.
+  This is the opposite convention to `transcript.user.delta`, which is the full
+  transcript so far and must be replaced rather than concatenated. **Two events,
+  two opposite rules.**
+- `start_ms` / `end_ms` are offsets into the reply audio, not wall-clock.
+- The first word starts at **296 ms**, so the reply audio opens with roughly
+  300 ms of leading silence. The playback clock has to account for it or the ink
+  runs ahead of the voice by a third of a second.
+- `reply_id` and `item_id` scope each delta to its reply — needed to discard a
+  stale timeline after a barge-in.
+
+**Consequence for the receipt.** The ink is a live approximation driven by a
+predicted timeline; the authoritative record of what was spoken is still the
+final `transcript.agent` and the `interrupted` flag, which is what the ledger
+compares. The two tiers stay distinct: the ink moves, the receipt decides.
