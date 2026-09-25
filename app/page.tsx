@@ -5,8 +5,11 @@ import { CallSetup } from "./components/CallSetup";
 import { Composer } from "./components/Composer";
 import { Timeline, type HeardLine } from "./components/Timeline";
 import { TurnIndicator } from "./components/TurnIndicator";
+import { VoiceTrace } from "./components/VoiceTrace";
 import { MicCapture } from "@/lib/audio/capture";
+import { LevelTrace } from "@/lib/audio/level-trace";
 import { ReplyPlayer } from "@/lib/audio/playback";
+import { appendWord, inkSplit, type ReplyTimeline } from "@/lib/caption-timeline";
 import { connectWithRecovery, type CredentialsFetcher, type RelayClient } from "@/lib/relay-client";
 import {
   awaitingReceipt,
@@ -35,10 +38,25 @@ export default function Page() {
   // The id of the interrupted row whose remainder has already been offered to
   // the composer, so it is not offered again — see `continuation` below.
   const [consumedRemainderId, setConsumedRemainderId] = useState<string | null>(null);
+  // The live split of the in-flight reply against the playback clock — see
+  // the effect below. State, not a ref: it is what the timeline actually
+  // renders, but setInk is identity-guarded so an unchanged split does not
+  // force a re-render.
+  const [ink, setInk] = useState<{ id: string; spoken: string; unspoken: string } | null>(null);
 
   const client = useRef<RelayClient | null>(null);
   const capture = useRef<MicCapture | null>(null);
+  // Holds the same ReplyPlayer instance startCall() constructs, so the ink
+  // effect below can read elapsedMs() without a prop of its own threading a
+  // per-frame value through render.
+  const playerRef = useRef<ReplyPlayer | null>(null);
   const expiryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Neither of these may be React state: the worklet posts ~375 levels a
+  // second, and the transcript.agent.delta burst lands ~18 words inside 4ms.
+  // Both are read by a render loop (the canvas, the ink effect below), not
+  // by reconciliation.
+  const trace = useRef(new LevelTrace(160));
+  const timeline = useRef<ReplyTimeline | null>(null);
   // hangUp() only closes the player and the socket — without a handle on the
   // AudioContext itself it leaks one per successful call, and Chrome caps a
   // document at 6.
@@ -71,6 +89,12 @@ export default function Page() {
     setConsumedRemainderId(null);
     setTurn(INITIAL_TURN);
     seq.current = 0;
+    // A stale trace or timeline bleeding from the previous call into a new
+    // one is a real defect — the meter would open already lit, and a word
+    // could ink against another call's clock.
+    trace.current.clear();
+    timeline.current = null;
+    setInk(null);
 
     let ctx: AudioContext | undefined;
     let player: ReplyPlayer | undefined;
@@ -81,6 +105,9 @@ export default function Page() {
       await ctx.resume();
       audioCtx.current = ctx;
       player = new ReplyPlayer(ctx);
+      // The ink effect reads elapsedMs() off this same instance every
+      // animation frame; it needs it in a ref, not threaded through props.
+      playerRef.current = player;
 
       const fetchCredentials: CredentialsFetcher = async (recreate) => {
         const response = await fetch("/api/call", {
@@ -114,10 +141,13 @@ export default function Page() {
               push({ type: "spoken", text, interrupted });
             },
             onTurn: (event: TurnEvent) => setTurn((t) => turnReducer(t, event)),
-            // Task 7 gives this a body: it will drive the word-by-word ink
-            // in the reply timeline. Wiring it here would duplicate that
-            // task's work, so it's a required no-op until then.
-            onSpokenWord: () => {},
+            // Held in a ref, not state: transcript.agent.delta lands as
+            // ~18 words inside a 4ms burst. The ink effect below samples
+            // this timeline against the playback clock once per animation
+            // frame instead of once per delta.
+            onSpokenWord: (replyId, delta, startMs, endMs) => {
+              timeline.current = appendWord(timeline.current, replyId, delta, startMs, endMs);
+            },
             onStatus: (status) => {
               setStatus(status);
               // session_expired closes the socket with no warning event first.
@@ -143,6 +173,7 @@ export default function Page() {
         player.close();
         ctx.close();
         audioCtx.current = null;
+        playerRef.current = null;
         setError(err instanceof Error ? err.message : "Could not start the call");
         return;
       }
@@ -151,7 +182,10 @@ export default function Page() {
       try {
         const mic = new MicCapture(ctx);
         // sendAudio is a no-op before session.ready — audio sent earlier is discarded.
-        await mic.start((audio) => relay.sendAudio(audio));
+        await mic.start(
+          (audio) => relay.sendAudio(audio),
+          (level) => trace.current.push(level),
+        );
         capture.current = mic;
         setLive(true);
 
@@ -166,6 +200,7 @@ export default function Page() {
         await relay.hangUp();
         ctx.close();
         audioCtx.current = null;
+        playerRef.current = null;
         setError(err instanceof Error ? err.message : "Could not access the microphone");
       }
     } catch (err) {
@@ -175,6 +210,7 @@ export default function Page() {
       player?.close();
       ctx?.close();
       audioCtx.current = null;
+      playerRef.current = null;
       setError(err instanceof Error ? err.message : "Could not start audio for the call");
     } finally {
       // Unconditionally guaranteed, whichever of the paths above ran (or none did).
@@ -198,6 +234,7 @@ export default function Page() {
     await relay?.hangUp();
     await audioCtx.current?.close();
     audioCtx.current = null;
+    playerRef.current = null;
     setLive(false);
     setEnded(true);
     setTurn(INITIAL_TURN);
@@ -234,6 +271,35 @@ export default function Page() {
     return () => window.removeEventListener("pagehide", onHide);
   }, []);
 
+  // Drives `ink` from the playback clock, once per animation frame — never
+  // from the delta burst itself, which lands ~18 words inside 4ms and would
+  // set state far faster than React (or a human) can usefully consume it.
+  // The identity guards inside setInk matter: without them this sets state
+  // 60 times a second and re-renders the whole timeline every frame, on a
+  // machine that is also doing live audio capture and playback.
+  useEffect(() => {
+    if (!live) return;
+    let frame = 0;
+    const tick = () => {
+      const activePlayer = playerRef.current;
+      const pending = utterances.find((u) => u.status === "pending");
+      const elapsed = activePlayer?.elapsedMs() ?? null;
+      if (!pending || elapsed === null) {
+        setInk((prev) => (prev === null ? prev : null));
+      } else {
+        const split = inkSplit(timeline.current, elapsed);
+        setInk((prev) =>
+          prev && prev.id === pending.id && prev.spoken === split.spoken
+            ? prev
+            : { id: pending.id, ...split },
+        );
+      }
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, [live, utterances]);
+
   const { matched, total } = verbatimCount(utterances);
 
   // The most recent interrupted row with something left over, unless its
@@ -269,7 +335,20 @@ export default function Page() {
         }`}
       >
         <span className="text-2xl font-bold tracking-tight text-ink">Aloud</span>
-        <span className="text-sm text-mute">{status}</span>
+        <div className="flex items-baseline gap-4">
+          <span className="text-sm text-mute">{status}</span>
+          {live && (
+            // Moved out of the bottom of the live block: the ~44px plus the
+            // 20px gap around it belongs to the transcript, the one region
+            // on screen that actually grows with the call.
+            <button
+              onClick={hangUp}
+              className="rounded border border-danger px-2 py-1 text-sm font-bold text-danger hover:bg-danger hover:text-paper"
+            >
+              Hang up and delete the recording
+            </button>
+          )}
+        </div>
       </header>
 
       {error && (
@@ -292,20 +371,23 @@ export default function Page() {
 
       {live && (
         <>
-          <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1 border-b border-line pb-3">
-            {/* The second argument is the whole correction: a reply turn the API
-              * started on its own is not the user's voice. lib/turn-state.ts. */}
-            <TurnIndicator label={turnLabel(turn, awaitingReceipt(utterances))} />
-            <p className="text-sm tabular-nums text-dim">
-              {total === 0 ? "Nothing spoken yet" : `${matched} of ${total} spoken exactly`}
-            </p>
+          <div className="flex flex-col gap-1 border-b border-line pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1">
+              {/* The second argument is the whole correction: a reply turn the
+                * API started on its own is not the user's voice. lib/turn-state.ts. */}
+              <TurnIndicator label={turnLabel(turn, awaitingReceipt(utterances))} />
+              <p className="text-sm tabular-nums text-dim">
+                {total === 0 ? "Nothing spoken yet" : `${matched} of ${total} spoken exactly`}
+              </p>
+            </div>
+            {/* The trace shows sound; the label above shows whose turn it is.
+              * During the user's own reply the trace is quiet while the turn
+              * is still theirs — two different facts, both needed, merged
+              * into one element so the vertical budget does not grow. */}
+            <VoiceTrace trace={trace.current} live={live} />
           </div>
 
-          {/* `ink` is Task 7's wire-up (lib/caption-timeline.ts's `inkSplit`
-            * against the playback clock). Until then it is `null` on
-            * purpose, not a stub left half-done — `null` is a valid, tested
-            * value that renders exactly like a row with no live reply. */}
-          <Timeline heard={heard} utterances={utterances} partial={partial} ink={null} />
+          <Timeline heard={heard} utterances={utterances} partial={partial} ink={ink} />
 
           <Composer
             value={draft}
@@ -319,13 +401,6 @@ export default function Page() {
               push({ type: "typed", id, seq: seq.current, text });
             }}
           />
-
-          <button
-            onClick={hangUp}
-            className="self-start rounded-lg border border-danger px-5 py-2.5 font-bold text-danger hover:bg-danger hover:text-paper"
-          >
-            Hang up and delete the recording
-          </button>
         </>
       )}
     </main>
