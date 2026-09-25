@@ -479,13 +479,23 @@ export default function Page() {
               // user's name right now. Clearing both here makes a stale table
               // unreachable from a row it does not belong to.
               //
-              // `inkSplit`'s `expectedReplyId` is the structural half of the
-              // same defence and stays where it is: it refuses a timeline
-              // belonging to a superseded reply even if one is somehow still
-              // loaded. Two independent guards, because the failure they
-              // prevent is the screen lying about the user's own words.
+              // This clear is the ONLY guard against that. `inkSplit` takes an
+              // optional `expectedReplyId` and the unit tests exercise it, but
+              // no call site passes one and none can as things stand: an
+              // utterance is keyed by a local `crypto.randomUUID()`, not by the
+              // provider's `reply_id`, so there is nothing here to compare.
               timeline.current = null;
-              setInk(null);
+              // Ink is keyed by row id and Timeline renders it only when
+              // `ink.id === u.id`, so ink left over from another row cannot
+              // leak onto this one. What must not be dropped is a frozen
+              // barge-in split on a row that has not settled yet: nulling it
+              // sends that row back to Timeline's fallback, which renders the
+              // whole cut-off line as if every word of it had been spoken.
+              setInk((prev) =>
+                prev && utterances.some((u) => u.id === prev.id && u.status === "pending")
+                  ? prev
+                  : null,
+              );
               push({ type: "typed", id, seq: seq.current, text });
             }}
           />

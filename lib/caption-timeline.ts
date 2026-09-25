@@ -48,7 +48,9 @@ export function appendWord(
  * lagging the voice.
  *
  * `expectedReplyId`, when given, guards against a late burst for a superseded
- * reply inking the current one.
+ * reply inking the current one. No call site gives one today: an utterance is
+ * keyed by a local `crypto.randomUUID()`, not by the provider's `reply_id`.
+ * `app/page.tsx` clears the timeline on send and on reply-start instead.
  */
 export function inkSplit(
   timeline: ReplyTimeline | null,

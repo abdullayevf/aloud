@@ -223,6 +223,38 @@ describe("the live screen — a pending row says only what is true of ITS line",
     expect(pendingRow()).toBeNull();
   });
 
+  it("keeps the frozen split when the next line is sent before the row settles", async () => {
+    // The two guards meet here. Sending clears `timeline.current` (C1) and
+    // used to null `ink` with it — but the cut-off row can still be pending
+    // when the user types again, and dropping its ink sends it back to
+    // Timeline's fallback: the whole line solid, claiming every word got out.
+    // Ink is keyed by row id, so keeping it cannot reach the new row.
+    await startCall();
+
+    await send("I would like to reschedule");
+    await replyStart();
+    word("r1", "I ", 0, 100);
+    word("r1", "would ", 100, 200);
+    word("r1", "like ", 200, 300);
+    word("r1", "to ", 300, 400);
+    word("r1", "reschedule", 400, 500);
+    stub.elapsed = 150;
+    await frame();
+
+    stub.elapsed = null;
+    await frame();
+    await send("sorry, go on");
+    await frame();
+
+    // The cut-off row is still the first pending one, and still frozen.
+    expect(unspoken()).toBe("like to reschedule");
+    // The new row carries no ink of its own.
+    const rows = document.querySelectorAll("[data-receipt='pending']");
+    expect(rows).toHaveLength(2);
+    expect(rows[1].querySelector("[data-ink='unspoken']")).toBeNull();
+    expect(rows[1].textContent).toContain("sorry, go on");
+  });
+
   it("still falls back to the plain typed line for a row that has never inked", async () => {
     // The other side of the freeze: with no clock and no ink yet, there is
     // nothing to hold, and the row must show the typed text rather than a
