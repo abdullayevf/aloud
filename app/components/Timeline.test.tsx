@@ -1,6 +1,6 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { Timeline, type HeardLine } from "./Timeline";
+import { Timeline, type HeardLine, type InkState } from "./Timeline";
 import { remainderOf, type Utterance } from "@/lib/ledger";
 
 const u = (over: Partial<Utterance>): Utterance => ({
@@ -151,18 +151,99 @@ describe("Timeline — what was actually said", () => {
     expect(screen.getByText("No.")).toBeDefined();
   });
 
-  it("inks the words already spoken and leaves the rest ghosted", () => {
+  /** The word split as lib/caption-timeline.ts hands it over, mid-reply:
+   * "I " said, "would " being spoken, the rest not yet reached. */
+  const inked = (over: Partial<InkState> = {}): InkState => ({
+    id: "u1",
+    words: ["I ", "would ", "like ", "to ", "reschedule"],
+    saidCount: 1,
+    currentIndex: 1,
+    currentStartMs: 360,
+    currentDurationMs: 97,
+    currentElapsedMs: 40,
+    frozen: false,
+    ...over,
+  });
+
+  function renderPending(ink: InkState) {
     render(
       <Timeline
         heard={[]}
         utterances={[u({ id: "u1", status: "pending", typedText: "I would like to reschedule" })]}
         partial=""
-        ink={{ id: "u1", spoken: "I would ", unspoken: "like to reschedule" }}
+        ink={ink}
       />,
     );
-    const row = screen.getByRole("listitem");
-    expect(within(row).getByText("I would", { exact: false })).toBeDefined();
-    expect(row.querySelector("[data-ink='unspoken']")?.textContent).toContain("like to reschedule");
+    return screen.getByRole("listitem");
+  }
+
+  it("inks the words already spoken and leaves the rest ghosted", () => {
+    const row = renderPending(inked());
+    expect(row.querySelector("[data-ink='said']")?.textContent).toBe("I ");
+    expect(row.querySelector("[data-ink='unspoken']")?.textContent).toBe("like to reschedule");
+  });
+
+  it("marks exactly one word as the one being spoken right now", () => {
+    // The whole point of the three-way split: the eye needs a mark on a word,
+    // not a boundary between two walls of text.
+    const row = renderPending(inked());
+    const saying = row.querySelectorAll("[data-ink='saying']");
+    expect(saying).toHaveLength(1);
+    expect(saying[0].textContent).toBe("would");
+  });
+
+  it("keeps the trailing space out of the stroke", () => {
+    // A word arrives as "would " and the underline must stop at the word, not
+    // run a character past it into the gap.
+    const row = renderPending(inked());
+    expect(row.querySelector("[data-ink='saying']")?.textContent).not.toContain(" ");
+    // ...and the space is still in the line, so the text reads unchanged.
+    expect(row.querySelector("p")?.textContent).toBe("I would like to reschedule");
+  });
+
+  it("runs the stroke over the word's own measured duration, starting part-drawn", () => {
+    const row = renderPending(inked());
+    const saying = row.querySelector("[data-ink='saying']") as HTMLElement;
+    expect(saying.className).toContain("word-sweep-run");
+    expect(saying.style.getPropertyValue("--sweep-dur")).toBe("97ms");
+    // Negative: the frame that noticed this word was already 40ms into it.
+    expect(saying.style.getPropertyValue("--sweep-delay")).toBe("-40ms");
+  });
+
+  it("holds a frozen stroke where the voice stopped instead of animating on", () => {
+    // Barge-in mid-word. Letting the animation finish would draw a stroke
+    // across the whole of a word that was never finished being said.
+    const row = renderPending(inked({ frozen: true }));
+    const saying = row.querySelector("[data-ink='saying']") as HTMLElement;
+    expect(saying.className).not.toContain("word-sweep-run");
+    // 40ms into a 97ms word.
+    expect(Number(saying.style.getPropertyValue("--sweep-at"))).toBeCloseTo(40 / 97, 5);
+  });
+
+  it("keeps a whitespace-only word in the line even though there is nothing to underline", () => {
+    // Dropping it would silently close up a gap in the user's own line.
+    const row = renderPending(
+      inked({ words: ["I ", " ", "like "], saidCount: 1, currentIndex: 1 }),
+    );
+    expect(row.querySelector("[data-ink='saying']")).toBeNull();
+    expect(row.querySelector("p")?.textContent).toBe("I  like ");
+  });
+
+  it("draws no stroke once the last word is finished", () => {
+    // inkWords retires currentIndex past the end of the reply: every word
+    // solid, nothing left moving on screen.
+    const row = renderPending(inked({ saidCount: 5, currentIndex: null }));
+    expect(row.querySelector("[data-ink='saying']")).toBeNull();
+    expect(row.querySelector("[data-ink='unspoken']")).toBeNull();
+    expect(row.querySelector("[data-ink='said']")?.textContent).toBe("I would like to reschedule");
+  });
+
+  it("ghosts the whole line before the first word starts", () => {
+    const row = renderPending(inked({ saidCount: 0, currentIndex: null }));
+    expect(row.querySelector("[data-ink='said']")).toBeNull();
+    expect(row.querySelector("[data-ink='unspoken']")?.textContent).toBe(
+      "I would like to reschedule",
+    );
   });
 });
 

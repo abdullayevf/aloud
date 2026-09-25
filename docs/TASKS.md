@@ -45,12 +45,14 @@ Plan **Task 10**: captions, composer, quick phrases, ledger, turn bar. (The assi
 ### Day 7 — deletion, browsers, latency ✅ done, then re-opened
 Plan **Tasks 11–12**: `/api/end`, the deletion banner, Chrome/Firefox/Safari, the expiry warning, and one measured `time_to_first_audio_ms` in the README.
 
-Deletion, the expiry warning, the hardening, and the measured latency figure are all in the README (2026-09-25: `reply.create` → first `reply.audio`, 377/331/238 ms, mean 315 ms — see README "Measured latency"). The browser matrix *was* filled in once, then **reset to PENDING in every cell on 2026-09-25**, deliberately: the 2026-09-25 kinetic-caption work (see below) changed the capture worklet, playback, the caption timeline and the whole live screen, so the earlier pass described code nobody is submitting. It needs a fresh human pass, now also covering the voice trace and the word ink.
+Deletion, the expiry warning, the hardening, and the measured latency figure are all in the README (2026-09-25: `reply.create` → first `reply.audio`, 377/331/238 ms, mean 315 ms — see README "Measured latency"). The browser matrix *was* filled in once, then **reset to PENDING in every cell on 2026-09-25** and left that way through the 2026-09-26 caption work, deliberately: between them they changed the capture worklet, playback, the caption timeline and the whole live screen, so the earlier pass described code nobody is submitting. It needs a fresh human pass, now also covering the word ink and the stroke under the word being spoken.
 
-*Done when:* the recording is gone and the browser matrix is filled in **against the current build** — including the Firefox echo-cancellation check, the voice trace, and the word ink.
+*Done when:* the recording is gone and the browser matrix is filled in **against the current build** — including the Firefox echo-cancellation check, the word ink, and the stroke under the word being spoken.
 
 ### Day 7.5 — kinetic captions ✅ done, 25 Sep
 The voice trace (amplitude from our own microphone) and the word ink (word timings from `transcript.agent.delta`, freezing in place on a barge-in) shipped, per `docs/superpowers/specs/2026-09-25-kinetic-captions-design.md` and the matching implementation plan. Credited to Caption with Intention (Chicago Hearing Society) as inspiration in the README, with only the measurable channels implemented — no pitch, no emotion.
+
+**Amended 2026-09-26.** The voice trace is **deleted** — it restated a fact the turn label already carried in words, and cost the screen's whole motion budget to do it. The word ink stayed and got sharper: the pending row is now *said / the one word being spoken now / not yet reached*, with a stroke that crosses the current word in that word's own measured duration. Spec §0a of the kinetic-captions design and item 5 of the design spec §0 record it; the deletion must not be undone.
 
 ### Day 8 — rehearse and record · **the video is the critical path**
 Plan **Task 13** part one: re-scan the leaderboard, re-check the live submission form, write the copy, record the video. Force a deliberate ledger mismatch on camera if you can — a receipt that can fail is worth more than one that always passes.

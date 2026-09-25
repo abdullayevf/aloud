@@ -112,8 +112,66 @@ body {
   animation: aloud-sweep 1.5s cubic-bezier(0.45, 0, 0.55, 1) infinite;
 }
 
+/* ---------------------------------------------------------------------------
+ * The stroke under the word being spoken.
+ *
+ * The second animated thing in the product, and it earns it the same way the
+ * turn indicator does: it is a measured signal, not decoration. The stroke
+ * crosses the word in exactly the time the voice takes over that word — 517ms
+ * for "reschedule", 81ms for "to", from the timings the provider sends
+ * (lib/caption-timeline.ts). So the pace IS the speech; a fixed tick would be
+ * the software keeping time instead of the voice.
+ *
+ * `linear`, deliberately, where everything else here eases. An eased stroke
+ * would be ahead of the voice in the middle of the word and behind it at the
+ * ends, which on a screen whose whole job is "what is being said right now" is
+ * a small lie repeated once per word.
+ *
+ * `currentColor`, not an accent: green means the receipt came back matching and
+ * blue means an interruption. Neither is what a stroke under an in-flight word
+ * says, and borrowing one would make the palette mean two things.
+ * ------------------------------------------------------------------------- */
+
+@keyframes aloud-word-sweep {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+.word-sweep {
+  position: relative;
+}
+
+/* The static rule. `--sweep-at` is how far across the word the stroke sits,
+ * 0 to 1, and it is what a frozen row renders: an interruption leaves the
+ * stroke stopped exactly where the voice stopped, mid-word. */
+.word-sweep::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -0.14em;
+  height: 0.075em;
+  border-radius: 999px;
+  background: currentColor;
+  transform-origin: left center;
+  transform: scaleX(var(--sweep-at, 1));
+}
+
+/* The moving rule, for a word still being spoken. The two custom properties
+ * are set inline per word and reach here because custom properties inherit
+ * into pseudo-elements — `animation-duration` set inline on the span would
+ * not, since animation properties are not inherited. `--sweep-delay` is
+ * NEGATIVE: the frame that noticed this word is already some way into it, so
+ * the animation starts part-drawn rather than snapping back to zero. */
+.word-sweep-run::after {
+  animation: aloud-word-sweep var(--sweep-dur, 0ms) linear var(--sweep-delay, 0ms) both;
+}
+
 /* Motion is the redundant channel here, never the only one: the word, the
- * colour and the dot all still carry the state without it. */
+ * colour and the dot all still carry the state without it. The stroke is
+ * belt-and-braces — app/page.tsx does not render inked words at all under this
+ * preference — but if that ever changes, a full static underline still marks
+ * the word without anything moving. */
 @media (prefers-reduced-motion: reduce) {
   .ring,
   .breathe,
@@ -123,5 +181,9 @@ body {
   }
   .ring {
     opacity: 0;
+  }
+  .word-sweep-run::after {
+    animation: none;
+    transform: scaleX(1);
   }
 }

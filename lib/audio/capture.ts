@@ -7,10 +7,7 @@ export class MicCapture {
 
   constructor(private ctx: AudioContext) {}
 
-  async start(
-    onChunk: (base64: string) => void,
-    onLevel?: (level: number) => void,
-  ): Promise<void> {
+  async start(onChunk: (base64: string) => void): Promise<void> {
     this.stream = await navigator.mediaDevices.getUserMedia({
       // echoCancellation ON: without it the mic hears our own TTS through the
       // speakers and the hearing party's captions fill with our words.
@@ -28,11 +25,8 @@ export class MicCapture {
           targetSampleRate: TARGET_SAMPLE_RATE,
         },
       });
-      this.node.port.onmessage = (
-        event: MessageEvent<{ pcm: ArrayBuffer; level: number }>,
-      ) => {
+      this.node.port.onmessage = (event: MessageEvent<{ pcm: ArrayBuffer }>) => {
         onChunk(encodeInt16ToBase64(new Int16Array(event.data.pcm)));
-        onLevel?.(event.data.level);
       };
 
       this.source = this.ctx.createMediaStreamSource(this.stream);

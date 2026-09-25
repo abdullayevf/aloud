@@ -15,22 +15,28 @@ Each row tests:
 4. Mic captions appear
 5. Barge-in stops audio
 6. Hangup deletes recording (confirmed on screen)
-7. **New:** the voice trace renders while the agent speaks and stays flat in silence
-8. **New:** the word ink advances in step with the voice, and **freezes at the
+7. **New:** the word ink advances in step with the voice, and **freezes at the
    word it had reached** when the hearing party talks over the line — it must
    not jump to the whole line solid, and it must not blank. The frozen split is
    an approximation; the row then settles and `remainderOf()` replaces it with
    the definitive one.
-9. **New:** with `prefers-reduced-motion: reduce` set in the OS, the line being
-   spoken shows as plain typed text with no ink animation at all, and the voice
-   trace shows a single level bar rather than a travelling waveform. Settled
+8. **New:** exactly one word carries the stroke at a time, the stroke grows
+   from the left across that word, and it **does not blink out between words**
+   (the measured timings have gaps; `inkWords` holds the current word through
+   them on purpose). A long word is underlined visibly more slowly than a short
+   one — that is the stroke taking the word's own duration, not a bug. The
+   stroke must sit under the word and not run out into the space after it.
+9. **New:** on a barge-in, the stroke stops *inside* the word the voice was cut
+   off on rather than sliding to the end of it.
+10. **New:** with `prefers-reduced-motion: reduce` set in the OS, the line being
+   spoken shows as plain typed text with no ink and no stroke at all. Settled
    rows look the same either way.
 
-| Browser | Version | Greeting | Text Spoken | Ledger Match | Mic Captions | Barge-in Stops | Deletion Confirmed | Voice Trace | Word Ink | Notes |
-|---------|---------|----------|-------------|--------------|--------------|-----------------|--------------------|--------------|----------|----|
-| Chrome | not recorded | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | |
-| Firefox | not recorded | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | See "Firefox: the first-call stutter" below — prior evidence, not yet re-confirmed against this build. |
-| Safari | not recorded | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | PENDING — re-test required after the 2026-09-25 kinetic-caption work | |
+| Browser | Version | Greeting | Text Spoken | Ledger Match | Mic Captions | Barge-in Stops | Deletion Confirmed | Word Ink | Stroke | Notes |
+|---------|---------|----------|-------------|--------------|--------------|-----------------|--------------------|----------|--------|----|
+| Chrome | not recorded | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | |
+| Firefox | not recorded | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | See "Firefox: the first-call stutter" below — prior evidence, not yet re-confirmed against this build. |
+| Safari | not recorded | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | PENDING — re-test required after the 2026-09-26 caption work | |
 
 ## Firefox: the first-call stutter
 

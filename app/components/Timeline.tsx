@@ -1,6 +1,17 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type CSSProperties } from "react";
+import type { InkedWords } from "@/lib/caption-timeline";
 import type { Utterance } from "@/lib/ledger";
+
+/**
+ * One row's live ink: the word split from lib/caption-timeline.ts, plus which
+ * row it belongs to and whether it is frozen.
+ *
+ * `frozen` is the barge-in case. The voice was cut off mid-word, so there is no
+ * clock any more and the stroke must stop where it stopped rather than carry on
+ * to the end of a word that never finished — see app/page.tsx.
+ */
+export type InkState = InkedWords & { id: string; frozen: boolean };
 
 export interface HeardLine {
   id: string;
@@ -79,19 +90,78 @@ function Heard({ text }: { text: string }) {
   );
 }
 
+/** A word arrives with its trailing space attached ("reschedule "), and the
+ * stroke must not run out under that space — an underline a character wider
+ * than the word reads as sloppy rather than as pointing at something. So the
+ * word is split and only the middle gets the stroke; the spaces render beside
+ * it as plain text, which also keeps the line's spacing byte-identical to what
+ * the provider sent. */
+function splitPadding(word: string): [string, string, string] {
+  const m = /^(\s*)(.*?)(\s*)$/.exec(word);
+  return m ? [m[1], m[2], m[3]] : ["", word, ""];
+}
+
 /**
- * The words already spoken, inline with the words the voice has not reached
- * yet, for a `pending` row mid-reply — the live split of `ink` against the
- * playback clock (lib/caption-timeline.ts). `interrupted` shows the same
- * "solid, then ghosted" idea but under its own "Cut off — not spoken:"
- * caption rather than in one running line, because there the two parts are
- * not "so far" and "not yet" — the second part is never coming.
+ * The words already spoken, the one word being spoken right now, and the words
+ * the voice has not reached — the live three-way split of `ink` against the
+ * playback clock (lib/caption-timeline.ts).
+ *
+ * Three runs, not three-spans-per-word: the said words are uniform and so are
+ * the unsaid ones, so they need one span each. Only the current word is its own
+ * element, because only it carries the stroke. That also keeps
+ * `[data-ink="unspoken"]` a single node holding the whole remaining tail, which
+ * is what the tests and any assistive tooling read.
+ *
+ * `interrupted` shows the same "solid, then ghosted" idea but under its own
+ * "Cut off — not spoken:" caption rather than in one running line, because
+ * there the two parts are not "so far" and "not yet" — the second part is
+ * never coming.
  */
-function InkedLine({ spoken, unspoken }: { spoken: string; unspoken: string }) {
+function InkedLine({ ink }: { ink: InkState }) {
+  const { words, saidCount, currentIndex } = ink;
+  const said = words.slice(0, saidCount).join("");
+  const current = currentIndex === null ? null : words[currentIndex];
+  const rest = words.slice(currentIndex === null ? saidCount : currentIndex + 1).join("");
+  const [lead, core, trail] = current === null ? ["", "", ""] : splitPadding(current);
+
+  // Frozen: the stroke holds where the voice stopped, so it is a plain scaleX
+  // with no animation. Running: the duration is this word's own measured
+  // length and the delay is negative, so it opens part-drawn at exactly the
+  // point the voice has already reached.
+  const heldAt = Math.min(1, Math.max(0, ink.currentElapsedMs / ink.currentDurationMs));
+  // Custom properties, not `animationDuration`: they have to reach the `::after`
+  // that draws the stroke, and animation properties are not inherited by a
+  // pseudo-element while custom properties are. React passes unknown `--*` keys
+  // straight through; the cast is only to get them past CSSProperties' index.
+  const stroke: Record<string, string | number> = ink.frozen
+    ? { "--sweep-at": heldAt }
+    : {
+        "--sweep-dur": `${ink.currentDurationMs}ms`,
+        "--sweep-delay": `-${Math.max(0, ink.currentElapsedMs)}ms`,
+      };
+  const strokeStyle = stroke as CSSProperties;
+
   return (
     <p className="measure text-xl leading-relaxed">
-      <span className="text-ink">{spoken}</span>
-      <span className="text-mute" data-ink="unspoken">{unspoken}</span>
+      {said && <span className="text-ink" data-ink="said">{said}</span>}
+      {/* A word with nothing in it but whitespace has nothing to underline, and
+        * must still render — dropping it would silently close up a gap in the
+        * user's own line. It goes out as plain text with no stroke. */}
+      {current !== null && core === "" && current}
+      {core && (
+        <>
+          {lead}
+          <span
+            className={`text-ink word-sweep${ink.frozen ? "" : " word-sweep-run"}`}
+            data-ink="saying"
+            style={strokeStyle}
+          >
+            {core}
+          </span>
+          {trail}
+        </>
+      )}
+      {rest && <span className="text-mute" data-ink="unspoken">{rest}</span>}
     </p>
   );
 }
@@ -151,7 +221,7 @@ function CutOff({ u }: { u: Utterance }) {
   );
 }
 
-function Said({ u, ink }: { u: Utterance; ink: { spoken: string; unspoken: string } | null }) {
+function Said({ u, ink }: { u: Utterance; ink: InkState | null }) {
   const word = RECEIPT[u.status];
 
   // The most common outcome earns the least ink. A matched line was a
@@ -222,7 +292,7 @@ function Said({ u, ink }: { u: Utterance; ink: { spoken: string; unspoken: strin
   return (
     <li data-receipt="pending" className="rounded-lg border border-line bg-surface p-4">
       {ink ? (
-        <InkedLine spoken={ink.spoken} unspoken={ink.unspoken} />
+        <InkedLine ink={ink} />
       ) : (
         <p className="measure text-xl leading-relaxed text-ink">{u.typedText}</p>
       )}
@@ -243,13 +313,13 @@ export function Timeline({
   heard: HeardLine[];
   utterances: Utterance[];
   partial: string;
-  /** The row currently being spoken, split at the playback clock. Required,
-   * with no default: a caller that forgets it should not silently get a
-   * timeline that never inks in, it should fail to compile. Task 7 wires the
-   * real value from lib/caption-timeline.ts's `inkSplit`; until then every
-   * call site — including the one in app/page.tsx — passes `null` on
-   * purpose, which renders exactly like a row with no live reply. */
-  ink: { id: string; spoken: string; unspoken: string } | null;
+  /** The row currently being spoken, split into said / saying / not-yet at the
+   * playback clock. Required, with no default: a caller that forgets it should
+   * not silently get a timeline that never inks in, it should fail to compile.
+   * `null` renders exactly like a row with no live reply — the plain typed
+   * line — which is also the correct rendering for the ~365ms before this
+   * reply's word timings arrive. */
+  ink: InkState | null;
 }) {
   const items = [
     ...heard.map((h) => ({ seq: h.seq, node: <Heard key={`h${h.id}`} text={h.text} /> })),
@@ -259,7 +329,7 @@ export function Timeline({
         <Said
           key={`u${u.id}`}
           u={u}
-          ink={ink && ink.id === u.id ? { spoken: ink.spoken, unspoken: ink.unspoken } : null}
+          ink={ink && ink.id === u.id ? ink : null}
         />
       ),
     })),

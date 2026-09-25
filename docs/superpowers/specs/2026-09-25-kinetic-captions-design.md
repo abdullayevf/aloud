@@ -1,7 +1,33 @@
 # Kinetic captions — design
 
-**Date:** 2026-09-25 · **Status:** agreed, ready to plan
+**Date:** 2026-09-25 · **Status:** shipped, then amended 2026-09-26 — see §0a
 **Supersedes nothing.** Extends the interface spec (`2026-09-23-aloud-interface.md`) §2.1 and §2.5.
+
+## 0a. Amended 2026-09-26 — the voice trace is deleted, the ink is per word
+
+Both halves of this spec shipped. One of them was then cut.
+
+**Deleted: the voice trace (§4).** `app/components/VoiceTrace.tsx`,
+`lib/audio/level-trace.ts`, both their tests, and the RMS computation in
+`public/pcm-processor.js` are gone, along with `MicCapture.start`'s `onLevel`
+parameter. The strip was not wrong — it was a real measurement, honestly drawn —
+it was **unnecessary**. Whose turn it is was already on screen in words, and a
+second always-moving element beside it spent the screen's whole motion budget
+on a fact the label already carried. It must not come back.
+
+The cost is recorded rather than glossed: the trace was the only signal on
+screen that beat the ~1 s caption lag. "Someone is talking right now" now comes
+only from `TurnIndicator`, which is event-driven and therefore slower. That
+trade was made deliberately.
+
+**Changed: §5's ink is a three-way split, not a two-way one.** `inkSplit`
+returned `spoken` / `unspoken` — two runs of text, so the only cue was the
+boundary between them, a boundary between two walls of text rather than a mark
+on a word. `inkWords` returns *said* / *the one word being spoken now* / *not
+yet reached*, and the current word carries a stroke that crosses it in exactly
+that word's own measured duration (517 ms for "reschedule", 81 ms for "to").
+§5 and §6 below are otherwise unchanged and still describe the mechanism; read
+"the word being spoken" as marked, not merely as the boundary.
 
 ## 0. Why
 
@@ -17,10 +43,11 @@ A hearing person on a call receives a continuous stream of information: that som
 
 | Channel | Bound to | Source | Status |
 |---|---|---|---|
-| Voice trace amplitude | hearing party's real loudness | RMS of our own mic float samples | build |
-| Word ink | when each word is actually spoken | `transcript.agent.delta` `start_ms`/`end_ms` + playback clock | build |
-| Ink freeze point | a real barge-in | `input.speech.started` / `reply.done status=interrupted` | build |
-| Ghosted tail | what never left | `remainderOf(typed, spoken)` | build |
+| Voice trace amplitude | hearing party's real loudness | RMS of our own mic float samples | **deleted 2026-09-26, §0a** |
+| Word ink | when each word is actually spoken | `transcript.agent.delta` `start_ms`/`end_ms` + playback clock | shipped |
+| Word stroke duration | how long the voice takes over that word | the word's own `end_ms - start_ms` | shipped |
+| Ink freeze point | a real barge-in | `input.speech.started` / `reply.done status=interrupted` | shipped |
+| Ghosted tail | what never left | `remainderOf(typed, spoken)` | shipped |
 | Pitch → font weight | — | F0 estimate off a phone speaker is noisy | **rejected** |
 | Emotion / sentiment | — | not measured at all | **rejected** |
 
@@ -45,7 +72,7 @@ From `docs/research/gate-results-2026-09-22.md`, "`transcript.agent.delta` — m
 
 The ink moves; the receipt decides. No visual state may imply the receipt before `transcript.agent` has arrived — the existing rule that `pending` renders in `mute`, never in the verified green, extends to the ink.
 
-## 4. The voice trace
+## 4. The voice trace — DELETED 2026-09-26 (§0a). Kept below as the record of what was built and why it went.
 
 `public/pcm-processor.js` already holds the hearing party's raw float samples (their phone on speaker, into our mic) and discards everything but resampled bytes. It gains an RMS computation over each render quantum, posted alongside the PCM.
 

@@ -21,6 +21,12 @@ A fourth was added on **2026-09-23**, after this spec was written:
 
 4. **Assistant mode.** Deleted — §4.2–4.4 below record what it was and why it went. There is now exactly one mode, no `llm` proxy path, and no branch in `/api/llm/v1/chat/completions` that can reach a model. Do not reintroduce a toggle that routes the user's line through inference.
 
+A fifth was added on **2026-09-26**:
+
+5. **The voice trace.** A strip drawn from the hearing party's measured loudness, shipped 2026-09-25 and deleted the next day. `app/components/VoiceTrace.tsx`, `lib/audio/level-trace.ts`, the RMS block in `public/pcm-processor.js` and `MicCapture.start`'s `onLevel` parameter are all gone. It was honest and it was unnecessary: whose turn it is was already on screen in words, and an always-moving strip beside that label spent the screen's entire motion budget restating it. `docs/superpowers/specs/2026-09-25-kinetic-captions-design.md` §0a records the amendment and the one real cost — the trace was the only signal that beat the ~1 s caption lag. Do not put a level meter, waveform or volume bar back on the call screen.
+
+The **word ink** from that same day stays, and got sharper: the pending row now renders *said / the one word being spoken now / not yet reached*, with a stroke under the current word that crosses it in that word's own measured duration (`lib/caption-timeline.ts`'s `inkWords`). The two-way `inkSplit` is gone.
+
 One thing carries over intact: the **browser audio pipeline** (§7). It is product-neutral and the constraints in it are real.
 
 ---

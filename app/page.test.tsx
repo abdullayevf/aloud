@@ -73,6 +73,9 @@ async function frame() {
 const box = () => screen.getByRole("textbox", { name: /type what you want said/i });
 const pendingRow = () => document.querySelector("[data-receipt='pending']");
 const unspoken = () => pendingRow()?.querySelector("[data-ink='unspoken']")?.textContent ?? null;
+const said = () => pendingRow()?.querySelector("[data-ink='said']")?.textContent ?? null;
+/** The one word the stroke is under, and whether it is still travelling. */
+const saying = () => pendingRow()?.querySelector("[data-ink='saying']") as HTMLElement | null;
 
 async function startCall() {
   await act(async () => {
@@ -153,7 +156,11 @@ describe("the live screen — a pending row says only what is true of ITS line",
     word("r1", "line", 500, 600);
     stub.elapsed = 5000; // the whole line is out
     await frame();
-    expect(unspoken()).toBe("");
+    // Every word said, so there is no tail left and no stroke anywhere — the
+    // three-way split renders only the solid run.
+    expect(unspoken()).toBeNull();
+    expect(saying()).toBeNull();
+    expect(said()).toBe("Hello, this is the first line");
 
     // The first line settles; the clock and the table are untouched, which is
     // the point — nothing clears them on its own.
@@ -187,7 +194,7 @@ describe("the live screen — a pending row says only what is true of ITS line",
     const rows = [...document.querySelectorAll("[data-receipt='pending']")];
     const second = rows[rows.length - 1];
     expect(second?.textContent).toContain("Second line");
-    expect(second?.querySelector("[data-ink='unspoken']")).toBeNull();
+    expect(second?.querySelector("[data-ink]")).toBeNull();
   });
 
   it("freezes the ink where the voice stopped when the hearing party cuts in", async () => {
@@ -251,7 +258,7 @@ describe("the live screen — a pending row says only what is true of ITS line",
     // The new row carries no ink of its own.
     const rows = document.querySelectorAll("[data-receipt='pending']");
     expect(rows).toHaveLength(2);
-    expect(rows[1].querySelector("[data-ink='unspoken']")).toBeNull();
+    expect(rows[1].querySelector("[data-ink]")).toBeNull();
     expect(rows[1].textContent).toContain("sorry, go on");
   });
 
@@ -265,6 +272,7 @@ describe("the live screen — a pending row says only what is true of ITS line",
 
     expect(pendingRow()?.textContent).toContain("I would like to reschedule");
     expect(unspoken()).toBeNull();
+    expect(saying()).toBeNull();
   });
 
   it("does not animate the ink when the reader asks for reduced motion", async () => {
@@ -283,5 +291,70 @@ describe("the live screen — a pending row says only what is true of ITS line",
 
     expect(pendingRow()?.textContent).toContain("I would like to reschedule");
     expect(unspoken()).toBeNull();
+    expect(saying()).toBeNull();
+  });
+
+  it("moves the stroke to the next word as the voice reaches it", async () => {
+    // The feature itself: one word marked at a time, handed on by the playback
+    // clock against the provider's own word timings.
+    await startCall();
+    await send("I would like to reschedule");
+    await replyStart();
+    word("r1", "I ", 0, 100);
+    word("r1", "would ", 100, 200);
+    word("r1", "like ", 200, 300);
+    word("r1", "to ", 300, 400);
+    word("r1", "reschedule", 400, 500);
+
+    stub.elapsed = 50;
+    await frame();
+    expect(saying()?.textContent).toBe("I");
+    expect(said()).toBeNull();
+
+    stub.elapsed = 250;
+    await frame();
+    expect(saying()?.textContent).toBe("like");
+    expect(said()).toBe("I would ");
+    expect(unspoken()).toBe("to reschedule");
+  });
+
+  it("gives the stroke this word's own duration, starting where the voice already is", async () => {
+    // A long word is underlined slowly and a short one quickly, because the
+    // stroke's length IS the word's measured length. The delay is negative so
+    // it opens part-drawn instead of snapping back to the start of the word.
+    await startCall();
+    await send("I would like to reschedule");
+    await replyStart();
+    word("r1", "I ", 0, 100);
+    word("r1", "would ", 100, 600);
+    stub.elapsed = 300;
+    await frame();
+
+    const stroke = saying()!;
+    expect(stroke.className).toContain("word-sweep-run");
+    expect(stroke.style.getPropertyValue("--sweep-dur")).toBe("500ms");
+    expect(stroke.style.getPropertyValue("--sweep-delay")).toBe("-200ms");
+  });
+
+  it("stops the stroke inside the word the voice was cut off on", async () => {
+    // The stroke must not carry on across a word that was never finished. A
+    // frozen row renders a static fraction, not a running animation — and the
+    // fraction is where the clock had actually got to.
+    await startCall();
+    await send("I would like to reschedule");
+    await replyStart();
+    word("r1", "I ", 0, 100);
+    word("r1", "would ", 100, 600);
+    stub.elapsed = 350;
+    await frame();
+
+    stub.elapsed = null; // barge-in: flush() nulls the reply origin
+    await frame();
+
+    const stroke = saying()!;
+    expect(stroke.textContent).toBe("would");
+    expect(stroke.className).not.toContain("word-sweep-run");
+    // 250ms into a 500ms word.
+    expect(Number(stroke.style.getPropertyValue("--sweep-at"))).toBeCloseTo(0.5, 5);
   });
 });
