@@ -98,3 +98,47 @@ describe("ReplyPlayer", () => {
     expect(started[0]).toBeCloseTo(0.4, 6);
   });
 });
+
+describe("ReplyPlayer playback clock", () => {
+  it("has no clock before anything is scheduled", () => {
+    const { ctx } = fakeContext();
+    expect(new ReplyPlayer(ctx).elapsedMs()).toBeNull();
+  });
+
+  it("reads zero until the scheduled lead-in has actually elapsed", () => {
+    // The first buffer starts MIN_LEAD_SECONDS in the future. Until the clock
+    // reaches it, no audio has been heard and nothing may be inked.
+    const { ctx } = fakeContext();
+    const player = new ReplyPlayer(ctx);
+    player.enqueue(chunk(24_000));
+    expect(player.elapsedMs()).toBe(0);
+  });
+
+  it("measures from the moment the reply's audio began, not from enqueue", () => {
+    const { ctx } = fakeContext();
+    const player = new ReplyPlayer(ctx);
+    player.enqueue(chunk(24_000));
+    ctx.currentTime = MIN_LEAD_SECONDS + 0.5;
+    expect(player.elapsedMs()).toBeCloseTo(500, 3);
+  });
+
+  it("drops the clock on flush so a barged reply cannot keep inking", () => {
+    const { ctx } = fakeContext();
+    const player = new ReplyPlayer(ctx);
+    player.enqueue(chunk(24_000));
+    ctx.currentTime = MIN_LEAD_SECONDS + 0.5;
+    player.flush();
+    expect(player.elapsedMs()).toBeNull();
+  });
+
+  it("starts a new clock for the reply after a flush", () => {
+    const { ctx } = fakeContext();
+    const player = new ReplyPlayer(ctx);
+    player.enqueue(chunk(24_000));
+    player.flush();
+    ctx.currentTime = 5;
+    player.enqueue(chunk(24_000));
+    ctx.currentTime = 5 + MIN_LEAD_SECONDS + 0.25;
+    expect(player.elapsedMs()).toBeCloseTo(250, 3);
+  });
+});

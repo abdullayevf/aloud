@@ -31,6 +31,7 @@ function client() {
     onStatus: vi.fn(),
     onError: vi.fn(),
     onTurn: vi.fn(),
+    onSpokenWord: vi.fn(),
   };
   const audio = { enqueue: vi.fn(), flush: vi.fn(), close: vi.fn() };
   const c = new RelayClient(
@@ -89,6 +90,24 @@ describe("RelayClient", () => {
     FakeSocket.last.onopen?.();
     FakeSocket.last.emit({ type: "reply.audio", data: "AAAA" });
     expect(audio.enqueue).toHaveBeenCalledWith("AAAA");
+  });
+
+  it("forwards word-level agent deltas with their timings", () => {
+    // Measured shape 2026-09-25: field is `delta` (NOT `text`), one word per
+    // event including its trailing space, with start_ms/end_ms offsets into the
+    // reply audio. Reading `text` here yields undefined.
+    const { c, handlers } = client();
+    void c.connect();
+    FakeSocket.last.onopen?.();
+    FakeSocket.last.emit({
+      type: "transcript.agent.delta",
+      reply_id: "resp_1",
+      item_id: "msg_1",
+      delta: "I ",
+      start_ms: 296,
+      end_ms: 312,
+    });
+    expect(handlers.onSpokenWord).toHaveBeenCalledWith("resp_1", "I ", 296, 312);
   });
 
   it("reports the spoken receipt with its interrupted flag", () => {
@@ -166,6 +185,7 @@ function recoveryHandlers() {
     onStatus: vi.fn(),
     onError: vi.fn(),
     onTurn: vi.fn(),
+    onSpokenWord: vi.fn(),
   };
 }
 

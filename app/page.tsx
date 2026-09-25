@@ -121,6 +121,10 @@ export default function Page() {
               }
             },
             onTurn: (event: TurnEvent) => setTurn((t) => turnReducer(t, event)),
+            // Task 7 gives this a body: it will drive the word-by-word ink
+            // in the reply timeline. Wiring it here would duplicate that
+            // task's work, so it's a required no-op until then.
+            onSpokenWord: () => {},
             onStatus: (status) => {
               setStatus(status);
               // session_expired closes the socket with no warning event first.

@@ -10,6 +10,10 @@ export interface RelayHandlers {
   onError(message: string): void;
   /** Whose turn it is. Spec 2.1 — the largest accessibility element on screen. */
   onTurn(event: TurnEvent): void;
+  /** One word of the reply currently being spoken, with its offsets into that
+   * reply's audio. The field is `delta`, not `text`, and these are NOT
+   * cumulative — the opposite convention to transcript.user.delta. */
+  onSpokenWord(replyId: string, delta: string, startMs: number, endMs: number): void;
 }
 
 interface Credentials {
@@ -87,6 +91,14 @@ export class RelayClient {
       case "reply.audio":
         // `data`, not `audio`. The field names are asymmetric.
         this.player.enqueue(message.data as string);
+        break;
+      case "transcript.agent.delta":
+        this.handlers.onSpokenWord(
+          message.reply_id as string,
+          message.delta as string,
+          message.start_ms as number,
+          message.end_ms as number,
+        );
         break;
       case "transcript.agent":
         // The configured `greeting` is spoken automatically at session.ready,

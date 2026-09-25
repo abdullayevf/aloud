@@ -20,6 +20,9 @@ export const MIN_LEAD_SECONDS = 0.12;
 
 export class ReplyPlayer {
   private cursor = 0;
+  /** When this reply's first frame is scheduled to be heard, on the context
+   * clock. Null between replies. */
+  private replyStart: number | null = null;
   private scheduled = new Set<AudioBufferSourceNode>();
 
   constructor(private ctx: AudioContext) {}
@@ -42,11 +45,28 @@ export class ReplyPlayer {
     // drain or a flush, and costs nothing mid-sentence: once the cursor runs
     // ahead of the clock it already wins.
     this.cursor = Math.max(this.cursor, this.ctx.currentTime + this.leadIn());
+    // The first frame of a reply defines its timeline origin. transcript.agent
+    // .delta's start_ms values are offsets into this same audio, so the two
+    // share an origin and the ~296ms of leading silence needs no correction:
+    // nothing inks until the voice actually starts, which is correct.
+    if (this.replyStart === null) this.replyStart = this.cursor;
     source.start(this.cursor);
     this.cursor += buffer.duration;
 
     this.scheduled.add(source);
     source.onended = () => this.scheduled.delete(source);
+  }
+
+  /**
+   * Milliseconds of this reply's audio the listener has actually heard, or null
+   * when no reply is playing.
+   *
+   * Clamped at zero: the first frame is scheduled a lead-in into the future, and
+   * a negative elapsed would ink words before any sound left the speaker.
+   */
+  elapsedMs(): number | null {
+    if (this.replyStart === null) return null;
+    return Math.max(0, (this.ctx.currentTime - this.replyStart) * 1000);
   }
 
   /** Safari does not implement outputLatency, so the floor carries it there. */
@@ -66,6 +86,8 @@ export class ReplyPlayer {
     }
     this.scheduled.clear();
     this.cursor = this.ctx.currentTime;
+    // A barged reply must stop inking. The next enqueue opens a new timeline.
+    this.replyStart = null;
   }
 
   close(): void {
