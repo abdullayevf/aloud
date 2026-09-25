@@ -26,6 +26,7 @@ describe("Timeline", () => {
         heard={[heard({ id: "h1", seq: 0, text: "Hello?" }), heard({ id: "h2", seq: 2, text: "Sure." })]}
         utterances={[u({ id: "u1", seq: 1, typedText: "Hi, can we move Thursday?" })]}
         partial=""
+        ink={null}
       />,
     );
     const items = screen.getAllByRole("listitem");
@@ -34,11 +35,20 @@ describe("Timeline", () => {
     expect(within(items[2]).getByText("Sure.")).toBeDefined();
   });
 
-  it("collapses a match to one line and a receipt, without repeating the text", () => {
-    render(<Timeline heard={[]} utterances={[u({ typedText: "Yes.", spokenText: "Yes." })]} partial="" />);
-    // Scoped to the row: the header also reads "1 of 1 spoken exactly".
+  // NOTE: this test originally asserted `getByText(/spoken exactly/i)` inside
+  // the row — the pre-Task-6 design, where a match printed the receipt word as
+  // visible text under the card. Task 6 deliberately removes that: "keeps a
+  // matched line quiet" below is the fuller spec, and it asserts the opposite
+  // — that the same text is NOT queryable, because it now lives on the icon's
+  // aria-label rather than as a text node. The two assertions cannot both
+  // hold, so this test is updated to check what the redesign actually
+  // promises (one line, no repeated text, the receipt still reachable by
+  // assistive tech) rather than deleted or left contradicting the new design.
+  it("collapses a match to one line and a mark, without repeating the text", () => {
+    render(<Timeline heard={[]} utterances={[u({ typedText: "Yes.", spokenText: "Yes." })]} partial="" ink={null} />);
     const row = screen.getByRole("listitem");
-    expect(within(row).getByText(/spoken exactly/i)).toBeDefined();
+    const icon = within(row).getByRole("img", { hidden: true });
+    expect(icon.getAttribute("aria-label")).toMatch(/spoken exactly/i);
     // The point of collapsing: the text appears once, not as typed-vs-spoken.
     expect(screen.getAllByText("Yes.")).toHaveLength(1);
   });
@@ -48,6 +58,7 @@ describe("Timeline", () => {
       <Timeline
         heard={[]}
         partial=""
+        ink={null}
         utterances={[
           u({
             status: "mismatch",
@@ -67,6 +78,7 @@ describe("Timeline", () => {
       <Timeline
         heard={[]}
         partial=""
+        ink={null}
         utterances={[u({ status: "interrupted", typedText: "Please repeat that.", spokenText: "Please" })]}
       />,
     );
@@ -74,7 +86,7 @@ describe("Timeline", () => {
   });
 
   it("shows the in-flight partial caption in a live region", () => {
-    render(<Timeline heard={[heard({})]} utterances={[]} partial="I was thinking" />);
+    render(<Timeline heard={[heard({})]} utterances={[]} partial="I was thinking" ink={null} />);
     const live = screen.getByText("I was thinking");
     expect(live.getAttribute("aria-live")).toBe("polite");
   });
@@ -85,9 +97,71 @@ describe("Timeline", () => {
   // element a deaf user depends on most off the screen with it. Asserted on the
   // class because that is where the behaviour lives — jsdom has no layout.
   it("scrolls inside itself, so the chrome around it cannot scroll away", () => {
-    render(<Timeline heard={[heard({})]} utterances={[]} partial="" />);
+    render(<Timeline heard={[heard({})]} utterances={[]} partial="" ink={null} />);
     const region = screen.getByLabelText("Call");
     expect(region.className).toContain("overflow-y-auto");
     expect(region.className).toContain("min-h-0");
+  });
+});
+
+// Task 6's own tests, from the brief. Two edits: `toBeInTheDocument()` in the
+// brief's source is a jest-dom matcher, and this repo never registers
+// jest-dom's matchers (see Composer.test.tsx) — every other assertion here
+// uses `.toBeDefined()` on a `getBy*` result, which already throws if nothing
+// is found, so that is what these use too. The assertions themselves are
+// unchanged from the brief.
+describe("Timeline — what was actually said", () => {
+  it("shows the unspoken tail of a cut-off line instead of only saying 'interrupted'", () => {
+    render(
+      <Timeline
+        heard={[]}
+        utterances={[
+          u({
+            status: "interrupted",
+            typedText: "I'd like to book an appointment for next Tuesday",
+            spokenText: "I'd like to book an appointment",
+            remainder: "for next Tuesday",
+          }),
+        ]}
+        partial=""
+        ink={null}
+      />,
+    );
+    expect(screen.getByText(/for next Tuesday/)).toBeDefined();
+  });
+
+  it("keeps a matched line quiet — no card, no chip, just the mark", () => {
+    const { container } = render(
+      <Timeline heard={[]} utterances={[u({ status: "match" })]} partial="" ink={null} />,
+    );
+    expect(screen.queryByText(/spoken exactly/i)).toBeNull();
+    expect(container.querySelector("[data-receipt='match']")).not.toBeNull();
+  });
+
+  it("keeps a mismatch loud — it is the one state that must be read", () => {
+    render(
+      <Timeline
+        heard={[]}
+        utterances={[u({ status: "mismatch", typedText: "Yes.", spokenText: "No." })]}
+        partial=""
+        ink={null}
+      />,
+    );
+    expect(screen.getByText(/altered/i)).toBeDefined();
+    expect(screen.getByText("No.")).toBeDefined();
+  });
+
+  it("inks the words already spoken and leaves the rest ghosted", () => {
+    render(
+      <Timeline
+        heard={[]}
+        utterances={[u({ id: "u1", status: "pending", typedText: "I would like to reschedule" })]}
+        partial=""
+        ink={{ id: "u1", spoken: "I would ", unspoken: "like to reschedule" }}
+      />,
+    );
+    const row = screen.getByRole("listitem");
+    expect(within(row).getByText("I would", { exact: false })).toBeDefined();
+    expect(row.querySelector("[data-ink='unspoken']")?.textContent).toContain("like to reschedule");
   });
 });

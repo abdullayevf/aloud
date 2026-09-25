@@ -301,7 +301,11 @@ export default function Page() {
             </p>
           </div>
 
-          <Timeline heard={heard} utterances={utterances} partial={partial} />
+          {/* `ink` is Task 7's wire-up (lib/caption-timeline.ts's `inkSplit`
+            * against the playback clock). Until then it is `null` on
+            * purpose, not a stub left half-done — `null` is a valid, tested
+            * value that renders exactly like a row with no live reply. */}
+          <Timeline heard={heard} utterances={utterances} partial={partial} ink={null} />
 
           <Composer
             value={draft}
