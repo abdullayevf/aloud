@@ -38,6 +38,13 @@ export function VoiceTrace({ trace, live }: { trace: LevelTrace; live: boolean }
 
     const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
 
+    // Read once per effect run, not once per frame: this only ever changes
+    // with the theme or the element's class, never frame to frame, and
+    // getComputedStyle forces a synchronous style recalculation. Doing that
+    // at ~60fps for a value that is almost always unchanged is a real,
+    // avoidable battery cost during a live call.
+    const ink = getComputedStyle(canvas).color;
+
     const draw = () => {
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
@@ -52,9 +59,9 @@ export function VoiceTrace({ trace, live }: { trace: LevelTrace; live: boolean }
 
       const values = trace.read();
       const mid = height / 2;
-      // Read the ink colour from the cascade so the trace follows the theme
-      // tokens in globals.css instead of hard-coding one of them.
-      ctx.fillStyle = getComputedStyle(canvas).color;
+      // The cached colour: follows the theme tokens in globals.css instead of
+      // hard-coding one of them, without re-querying the cascade every frame.
+      ctx.fillStyle = ink;
 
       if (reduced) {
         // No travelling motion: one bar for the current level only. Still
