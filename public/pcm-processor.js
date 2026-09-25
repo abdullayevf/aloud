@@ -16,6 +16,13 @@ class PCMProcessor extends AudioWorkletProcessor {
     const input = inputs[0] && inputs[0][0];
     if (!input) return true;
 
+    // Root-mean-square of this render quantum: the hearing party's actual
+    // loudness, measured rather than inferred. This is the only continuous
+    // signal on the screen that is not delayed by transcription.
+    let sumSquares = 0;
+    for (let i = 0; i < input.length; i += 1) sumSquares += input[i] * input[i];
+    const level = Math.sqrt(sumSquares / input.length);
+
     const out = [];
     while (this.pos < input.length) {
       const sample = input[Math.floor(this.pos)] || 0;
@@ -25,7 +32,9 @@ class PCMProcessor extends AudioWorkletProcessor {
     this.pos -= input.length;
 
     const pcm16 = Int16Array.from(out);
-    this.port.postMessage(pcm16.buffer, [pcm16.buffer]);
+    // The PCM buffer is transferred (zero-copy); `level` is a plain number and
+    // rides along in the same message so the two never drift apart.
+    this.port.postMessage({ pcm: pcm16.buffer, level }, [pcm16.buffer]);
     return true;
   }
 }
