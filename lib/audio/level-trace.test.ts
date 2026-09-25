@@ -43,4 +43,18 @@ describe("LevelTrace", () => {
     trace.push(Number.POSITIVE_INFINITY);
     expect(Array.from(trace.read())).toEqual([0, 1]);
   });
+
+  it("treats a missing level as silence — Number.isNaN never caught undefined", () => {
+    // A stale cached worklet serving the old message shape posts a frame with
+    // no level on it, so `undefined` arrives here. It is not NaN, so the old
+    // guard let it through, and Math.min(1, Math.max(0, undefined)) is NaN —
+    // the exact value the guard existed to keep out, with the trace silently
+    // blank for the rest of the call.
+    const trace = new LevelTrace(2);
+    trace.push(undefined as unknown as number);
+    trace.push(0.5);
+    const out = Array.from(trace.read());
+    expect(out.some(Number.isNaN)).toBe(false);
+    expect(out).toEqual([0, 0.5]);
+  });
 });

@@ -16,7 +16,15 @@ Each row tests:
 5. Barge-in stops audio
 6. Hangup deletes recording (confirmed on screen)
 7. **New:** the voice trace renders while the agent speaks and stays flat in silence
-8. **New:** the word ink advances in step with the voice, and freezes in place on a barge-in
+8. **New:** the word ink advances in step with the voice, and **freezes at the
+   word it had reached** when the hearing party talks over the line — it must
+   not jump to the whole line solid, and it must not blank. The frozen split is
+   an approximation; the row then settles and `remainderOf()` replaces it with
+   the definitive one.
+9. **New:** with `prefers-reduced-motion: reduce` set in the OS, the line being
+   spoken shows as plain typed text with no ink animation at all, and the voice
+   trace shows a single level bar rather than a travelling waveform. Settled
+   rows look the same either way.
 
 | Browser | Version | Greeting | Text Spoken | Ledger Match | Mic Captions | Barge-in Stops | Deletion Confirmed | Voice Trace | Word Ink | Notes |
 |---------|---------|----------|-------------|--------------|--------------|-----------------|--------------------|--------------|----------|----|

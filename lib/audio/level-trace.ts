@@ -25,12 +25,26 @@ export class LevelTrace {
     return this.buffer.length;
   }
 
-  /** NaN is treated as silence — one bad frame must not put an unrenderable
-   * value into a buffer the canvas reads every frame thereafter. Infinity
-   * needs no special case: it clamps to the meter's ceiling like any other
-   * out-of-range level, the same as a stray value above 1. */
+  /** Anything that is not a finite number is treated as silence — one bad
+   * frame must not put an unrenderable value into a buffer the canvas reads
+   * every frame thereafter.
+   *
+   * `Number.isFinite`, not `Number.isNaN`: the worklet is a cached file, and a
+   * stale one serving the old message shape hands us `undefined` here. That is
+   * not NaN, so the old guard let it through, and `Math.min(1, Math.max(0,
+   * undefined))` is NaN — the exact value the guard existed to keep out, with
+   * the trace silently blank for the rest of the call.
+   *
+   * `+Infinity` keeps its measured behaviour: it clamps to the meter's ceiling
+   * like any other out-of-range level, rather than reading as silence. A level
+   * that overflowed is loud, not quiet, and saying otherwise on a screen a
+   * deaf user reads for "is someone talking" is the wrong way to be wrong. */
   push(level: number): void {
-    const safe = Number.isNaN(level) ? 0 : Math.min(1, Math.max(0, level));
+    const safe = Number.isFinite(level)
+      ? Math.min(1, Math.max(0, level))
+      : level === Number.POSITIVE_INFINITY
+        ? 1
+        : 0;
     this.buffer[this.writes % this.buffer.length] = safe;
     this.writes += 1;
   }
