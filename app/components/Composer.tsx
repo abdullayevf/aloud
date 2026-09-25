@@ -117,10 +117,23 @@ export function Composer({
     const { text: corrected, correction } = correctFinalWord(trimmed);
     onSend(corrected);
     onChange("");
+    // Once sent, this text is spoken history, not an outstanding offer. Left
+    // uncleared, `filledWith` would still equal that string, and if the user
+    // ever typed the exact same short line again later in the call —
+    // "please", "tomorrow", "Yes." are exactly the kind of tail an
+    // interruption leaves and exactly the kind of thing said twice — the
+    // notice would falsely claim they had been cut off a second time. The
+    // receipt's whole claim is that what it says about the user's own words
+    // is true; a coincidence must not be allowed to produce a lie.
+    setFilledWith(null);
     setNotice(correction ? { ...correction, revert: null } : null);
   }
 
   function type(next: string, at: number) {
+    // Same reasoning as in send(): the moment the user edits the box by
+    // hand, whatever is left in it is theirs, not the offered remainder —
+    // even if a later edit happens to land back on the same text.
+    setFilledWith(null);
     const fixed = correctAtBoundary(next, at);
     if (!fixed) {
       onChange(next);

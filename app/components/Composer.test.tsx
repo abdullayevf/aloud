@@ -235,4 +235,57 @@ describe("Composer — continuing a line that was cut off", () => {
     );
     expect(screen.getByText(/cut off/i)).toBeDefined();
   });
+
+  // Regression: `filledWith` used to be set once by the fill effect and never
+  // reset. Sent or edited away, the box moves on, but the remembered string
+  // did not — so if the user later typed, by coincidence, the exact text of
+  // an earlier remainder ("please", "tomorrow", "Yes." are exactly the kind
+  // of short tail an interruption leaves, and exactly the kind of thing said
+  // twice in a call), the notice would falsely claim a second interruption
+  // that never happened. The receipt's whole claim is that what it says about
+  // the user's own words is true; a coincidence must not produce a lie.
+  it("does not relabel a later line as a continuation just because it matches an old one", () => {
+    const { rerender, onChange } = setup({ continuation: "please" });
+    // The fill lands, same as the previous test.
+    rerender(
+      <Composer
+        value="please"
+        onChange={onChange}
+        onSend={vi.fn()}
+        disabled={false}
+        continuation={null}
+        onContinuationUsed={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/cut off/i)).toBeDefined();
+
+    // The user sends it — from here it is spoken history, not an open offer.
+    fireEvent.keyDown(box(), { key: "Enter" });
+    rerender(
+      <Composer
+        value=""
+        onChange={onChange}
+        onSend={vi.fn()}
+        disabled={false}
+        continuation={null}
+        onContinuationUsed={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/cut off/i)).toBeNull();
+
+    // Later in the same call they type that exact word again, by hand, with
+    // nothing pending. It must not be mistaken for the earlier continuation.
+    type("please");
+    rerender(
+      <Composer
+        value="please"
+        onChange={onChange}
+        onSend={vi.fn()}
+        disabled={false}
+        continuation={null}
+        onContinuationUsed={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText(/cut off/i)).toBeNull();
+  });
 });
