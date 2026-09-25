@@ -9,6 +9,7 @@ const u = (over: Partial<Utterance>): Utterance => ({
   typedText: "hello",
   spokenText: "hello",
   status: "match",
+  remainder: null,
   ...over,
 });
 const heard = (over: Partial<HeardLine>): HeardLine => ({

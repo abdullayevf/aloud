@@ -11,7 +11,6 @@ import { connectWithRecovery, type CredentialsFetcher, type RelayClient } from "
 import {
   awaitingReceipt,
   ledgerReducer,
-  remainderOf,
   verbatimCount,
   type LedgerEvent,
   type Utterance,
@@ -33,6 +32,9 @@ export default function Page() {
   const [utterances, setUtterances] = useState<Utterance[]>([]);
   const [live, setLive] = useState(false);
   const [connecting, setConnecting] = useState(false);
+  // The id of the interrupted row whose remainder has already been offered to
+  // the composer, so it is not offered again — see `continuation` below.
+  const [consumedRemainderId, setConsumedRemainderId] = useState<string | null>(null);
 
   const client = useRef<RelayClient | null>(null);
   const capture = useRef<MicCapture | null>(null);
@@ -66,6 +68,7 @@ export default function Page() {
     setUtterances([]);
     setPartial("");
     setDraft("");
+    setConsumedRemainderId(null);
     setTurn(INITIAL_TURN);
     seq.current = 0;
 
@@ -104,21 +107,11 @@ export default function Page() {
               setPartial("");
             },
             onSpoken: (text, interrupted) => {
+              // The remainder is computed inside ledgerReducer now. It cannot
+              // be done out here: this runs in the same tick as push(), and
+              // whichever order the two updaters queue in, one of them reads
+              // state the other has already changed.
               push({ type: "spoken", text, interrupted });
-              // Interface spec §2.5: hand the unspoken remainder back to the
-              // composer so pressing Enter finishes the sentence. The ledger
-              // row itself stays logged as `interrupted` — nothing is
-              // retroactively edited.
-              //
-              // Read inside the updater, not from the closure: onSpoken fires
-              // in the same tick as push(), so `utterances` here is stale.
-              if (interrupted) {
-                setUtterances((state) => {
-                  const cut = state.find((u) => u.status === "pending");
-                  if (cut) setDraft(remainderOf(cut.typedText, text));
-                  return state;
-                });
-              }
             },
             onTurn: (event: TurnEvent) => setTurn((t) => turnReducer(t, event)),
             // Task 7 gives this a body: it will drive the word-by-word ink
@@ -243,6 +236,20 @@ export default function Page() {
 
   const { matched, total } = verbatimCount(utterances);
 
+  // The most recent interrupted row with something left over, unless its
+  // remainder has already been dropped into the box once. `remainder` lives
+  // permanently on the row (the ledger is never rewritten), so "already
+  // offered" has to be tracked separately, by id, or the same tail would come
+  // back on every render after the user cleared or sent it.
+  const lastInterrupted = [...utterances]
+    .reverse()
+    .find((u) => u.status === "interrupted" && u.remainder !== null);
+  const continuation =
+    lastInterrupted && lastInterrupted.id !== consumedRemainderId ? lastInterrupted.remainder : null;
+  const onContinuationUsed = useCallback(() => {
+    if (lastInterrupted) setConsumedRemainderId(lastInterrupted.id);
+  }, [lastInterrupted]);
+
   return (
     // Live, this is a console with fixed chrome and exactly one scrolling
     // region — the timeline. It is the whole fix for the turn indicator
@@ -300,6 +307,8 @@ export default function Page() {
             value={draft}
             onChange={setDraft}
             disabled={!live}
+            continuation={continuation}
+            onContinuationUsed={onContinuationUsed}
             onSend={(text) => {
               const id = client.current!.say(text);
               seq.current += 1;

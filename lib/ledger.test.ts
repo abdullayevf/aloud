@@ -127,3 +127,53 @@ describe("remainderOf", () => {
     expect(remainderOf("Please repeat that.", "Please repeat those")).toBe("Please repeat that.");
   });
 });
+
+describe("ledgerReducer — the interrupted remainder", () => {
+  it("records what never left the user's side, so nothing has to be retyped", () => {
+    let state = ledgerReducer([], {
+      type: "typed",
+      id: "u1",
+      seq: 1,
+      text: "I'd like to book an appointment for next Tuesday",
+    });
+    state = ledgerReducer(state, {
+      type: "spoken",
+      text: "I'd like to book an appointment",
+      interrupted: true,
+    });
+    expect(state[0].status).toBe("interrupted");
+    expect(state[0].remainder).toBe("for next Tuesday");
+  });
+
+  it("leaves no remainder when the line completed", () => {
+    let state = ledgerReducer([], { type: "typed", id: "u1", seq: 1, text: "Yes." });
+    state = ledgerReducer(state, { type: "spoken", text: "Yes.", interrupted: false });
+    expect(state[0].remainder).toBeNull();
+  });
+
+  it("leaves no remainder when the cut landed after the last word", () => {
+    let state = ledgerReducer([], { type: "typed", id: "u1", seq: 1, text: "Please hold." });
+    state = ledgerReducer(state, { type: "spoken", text: "Please hold.", interrupted: true });
+    expect(state[0].remainder).toBeNull();
+  });
+
+  it("falls back to the whole line when the spoken prefix does not match", () => {
+    // TTS normalisation can make the spoken text diverge from the typed text
+    // (a phone number read back differently). remainderOf returns the whole
+    // line rather than guess, and the row keeps the fragment it actually
+    // spoke so the user can see the two do not line up.
+    let state = ledgerReducer([], {
+      type: "typed",
+      id: "u1",
+      seq: 1,
+      text: "Call 415 555 0134 please",
+    });
+    state = ledgerReducer(state, {
+      type: "spoken",
+      text: "Call four one five",
+      interrupted: true,
+    });
+    expect(state[0].remainder).toBe("Call 415 555 0134 please");
+    expect(state[0].spokenText).toBe("Call four one five");
+  });
+});

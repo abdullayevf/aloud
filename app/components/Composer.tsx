@@ -23,11 +23,22 @@ export function Composer({
   onChange,
   onSend,
   disabled,
+  continuation,
+  onContinuationUsed,
 }: {
   value: string;
   onChange: (value: string) => void;
   onSend: (text: string) => void;
   disabled: boolean;
+  /** The unspoken tail of a line the hearing party cut off mid-sentence —
+   * `Utterance.remainder` from the row that was just marked `interrupted`,
+   * or null when nothing is waiting to be offered back. Computed in
+   * lib/ledger.ts's reducer; see the comment there for why it cannot be
+   * computed here or in the page. */
+  continuation: string | null;
+  /** Tells the page this continuation has been used, so it clears the value
+   * it is holding rather than re-offering the same tail forever. */
+  onContinuationUsed: () => void;
 }) {
   const box = useRef<HTMLTextAreaElement>(null);
   // Where the caret must land after a correction changed the text under it.
@@ -35,12 +46,32 @@ export function Composer({
   // words), and a controlled textarea would otherwise drop the caret at the end.
   const caret = useRef<number | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
+  // The last continuation actually written into the box. A remainder is
+  // offered once: if the user clears the box, or a second interruption arrives
+  // while the first tail is still sitting there unsent, nothing is overwritten.
+  const filled = useRef<string | null>(null);
 
   useEffect(() => {
     if (caret.current === null) return;
     box.current?.setSelectionRange(caret.current, caret.current);
     caret.current = null;
   });
+
+  useEffect(() => {
+    if (!continuation) return;
+    if (filled.current === continuation) return;
+    // Only into an empty box. Text appearing over something half-typed is the
+    // same failure as a correction the user cannot see before it is spoken.
+    if (value.trim() !== "") return;
+    filled.current = continuation;
+    onChange(continuation);
+    onContinuationUsed();
+  }, [continuation, value, onChange, onContinuationUsed]);
+
+  // Whether the box currently holds exactly the offered tail, regardless of
+  // whether this render is the one that put it there — see the effect above
+  // and the render comment below.
+  const continuationNotice = Boolean(continuation) && value === continuation;
 
   // Controlled from the page: when a line is cut off by the hearing party
   // talking over it, the page writes the unspoken remainder back in here so
@@ -125,7 +156,22 @@ export function Composer({
         aria-live="polite"
         className="flex min-h-6 flex-wrap items-baseline gap-x-2 text-sm text-dim"
       >
-        {notice && (
+        {/* Matched on the visible value, not on whether *this* render performed
+          * the fill: a box that already holds exactly the offered tail still
+          * needs the explanation, however it got there. The fill itself is
+          * still one-shot — see `filled` above — this is only about what gets
+          * displayed once it has. */}
+        {continuationNotice ? (
+          <span>
+            You were cut off. The rest of your line is here — press Enter to finish it.
+          </span>
+        ) : null}
+        {/* Suppressed while the continuation notice occupies this same strip:
+          * a leftover autocorrect message from before the interruption would
+          * otherwise sit beside an explanation about unrelated text, which is
+          * as confusing as showing neither. Nothing needs to setState to make
+          * that happen — the two notices share a slot by construction. */}
+        {!continuationNotice && notice && (
           <>
             <span>
               Changed <span className="line-through">{notice.from}</span> to{" "}

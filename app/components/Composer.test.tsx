@@ -1,5 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { useState } from "react";
+import { useState, type ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Composer } from "./Composer";
 
@@ -10,6 +10,8 @@ const props = {
   onChange: () => {},
   onSend: () => {},
   disabled: false,
+  continuation: null,
+  onContinuationUsed: () => {},
 };
 const box = () => screen.getByRole("textbox", { name: /type what you want said/i });
 const type = (value: string) => fireEvent.change(box(), { target: { value } });
@@ -18,7 +20,16 @@ const type = (value: string) => fireEvent.change(box(), { target: { value } });
  * corrected value coming back down needs a real state holder. */
 function Live({ onSend = () => {} }: { onSend?: (text: string) => void }) {
   const [value, setValue] = useState("");
-  return <Composer value={value} onChange={setValue} onSend={onSend} disabled={false} />;
+  return (
+    <Composer
+      value={value}
+      onChange={setValue}
+      onSend={onSend}
+      disabled={false}
+      continuation={null}
+      onContinuationUsed={() => {}}
+    />
+  );
 }
 
 describe("Composer", () => {
@@ -133,5 +144,71 @@ describe("Composer typo correction", () => {
     fireEvent.keyDown(box(), { key: "Enter" });
     expect(screen.getByText(/changed/i)).toBeDefined();
     expect(screen.queryByRole("button", { name: /undo/i })).toBeNull();
+  });
+});
+
+describe("Composer — continuing a line that was cut off", () => {
+  function setup(props: Partial<ComponentProps<typeof Composer>> = {}) {
+    const onChange = vi.fn();
+    const onContinuationUsed = vi.fn();
+    const utils = render(
+      <Composer
+        value=""
+        onChange={onChange}
+        onSend={vi.fn()}
+        disabled={false}
+        continuation={null}
+        onContinuationUsed={onContinuationUsed}
+        {...props}
+      />,
+    );
+    return { ...utils, onChange, onContinuationUsed };
+  }
+
+  it("puts the unspoken tail in the box when the box is empty", () => {
+    const { rerender, onChange } = setup();
+    rerender(
+      <Composer
+        value=""
+        onChange={onChange}
+        onSend={vi.fn()}
+        disabled={false}
+        continuation="for next Tuesday"
+        onContinuationUsed={vi.fn()}
+      />,
+    );
+    expect(onChange).toHaveBeenCalledWith("for next Tuesday");
+  });
+
+  it("says so, rather than text appearing in the box unexplained", () => {
+    setup({ value: "for next Tuesday", continuation: "for next Tuesday" });
+    // toBeDefined, not toBeInTheDocument: this repo's vitest setup does not
+    // register @testing-library/jest-dom's matchers (no other test in this
+    // file uses them either — see the "reports a correction..." test below),
+    // and getByText already throws if nothing matches.
+    expect(screen.getByText(/cut off/i)).toBeDefined();
+  });
+
+  it("never clobbers something the user is already typing", () => {
+    const { onChange } = setup({ value: "actually, never mind", continuation: "for next Tuesday" });
+    expect(onChange).not.toHaveBeenCalledWith("for next Tuesday");
+  });
+
+  it("does not re-fill a second time once the user has cleared the box", () => {
+    // A second interruption while the first remainder sits unsent must not
+    // overwrite it, and an already-consumed remainder must not come back.
+    const { rerender, onChange } = setup({ value: "", continuation: "first tail" });
+    onChange.mockClear();
+    rerender(
+      <Composer
+        value=""
+        onChange={onChange}
+        onSend={vi.fn()}
+        disabled={false}
+        continuation="first tail"
+        onContinuationUsed={vi.fn()}
+      />,
+    );
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

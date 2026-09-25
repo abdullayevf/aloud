@@ -8,6 +8,16 @@ export interface Utterance {
   typedText: string;
   spokenText: string | null;
   status: UtteranceStatus;
+  /** What was typed but never spoken, when the hearing party cut the line off.
+   * Null unless this row is `interrupted` with something actually left over.
+   *
+   * It lives on the row, computed in this pure reducer, because the previous
+   * home for it -- a second setUtterances updater in app/page.tsx -- could
+   * never work: push() queues the reducer, which flips this row from `pending`
+   * to `interrupted`, and the updater after it searched for a row still
+   * `pending`. It never found one, so the remainder was computed correctly by
+   * remainderOf() and then dropped on the floor, every single time. */
+  remainder: string | null;
 }
 
 export type LedgerEvent =
@@ -38,6 +48,7 @@ export function ledgerReducer(state: Utterance[], event: LedgerEvent): Utterance
         typedText: event.text,
         spokenText: null,
         status: "pending",
+        remainder: null,
       },
     ];
   }
@@ -53,7 +64,9 @@ export function ledgerReducer(state: Utterance[], event: LedgerEvent): Utterance
       : "mismatch";
 
   const next = [...state];
-  next[index] = { ...utterance, spokenText: event.text, status };
+  const remainder =
+    status === "interrupted" ? remainderOf(utterance.typedText, event.text) || null : null;
+  next[index] = { ...utterance, spokenText: event.text, status, remainder };
   return next;
 }
 
