@@ -96,6 +96,61 @@ function InkedLine({ spoken, unspoken }: { spoken: string; unspoken: string }) {
   );
 }
 
+/** Does the provider's record of this line contain any word at all?
+ *
+ * `remainderOf` compares word keys, so a spoken text of "" — or of nothing but
+ * punctuation — yields no words to match and the remainder comes back as the
+ * whole typed line. That case is NOT the fallback below: nothing was spoken, so
+ * "Cut off — not spoken:" over the whole line is simply true. This is the test
+ * that tells the two apart, and it uses the same notion of "a word" that
+ * lib/ledger.ts's `wordKey` does. */
+const anythingSpoken = (u: Utterance) => /[\p{L}\p{N}]/u.test(u.spokenText ?? "");
+
+/**
+ * What an interruption left behind.
+ *
+ * `remainderOf` returns the WHOLE typed line when the spoken text is not a
+ * clean prefix of it — a deliberate choice, and the right one for the composer,
+ * where re-offering everything beats re-offering a wrong fragment. It is the
+ * wrong thing to caption. TTS legitimately alters a word mid-line ("an" -> "a"),
+ * the prefix match then fails, and the old code printed "Cut off — not spoken:"
+ * above words the provider's own record says WERE spoken. That is the screen
+ * making a false statement about the user's own words, which is the worst class
+ * of bug this product has — so the label is only used when the remainder is a
+ * genuine tail, and the fallback says plainly that the two do not line up
+ * rather than claiming anything about which words got out.
+ */
+function CutOff({ u }: { u: Utterance }) {
+  if (u.remainder === null) return null;
+
+  // A genuine tail: the spoken text was a prefix, and this is what came after.
+  if (u.remainder !== u.typedText || !anythingSpoken(u)) {
+    return (
+      <div className="mt-2">
+        <p className="text-sm text-mute">Cut off — not spoken:</p>
+        <p className="measure mt-1 text-xl leading-relaxed text-mute" data-ink="unspoken">
+          {u.remainder}
+        </p>
+      </div>
+    );
+  }
+
+  // The fallback: words were spoken, but not as a prefix of what was typed, so
+  // which of them got out cannot be shown. Say that, and show the typed line
+  // as the typed line — not as a list of words nobody heard.
+  return (
+    <div className="mt-2">
+      <p className="text-sm text-mute">
+        Cut off. What was spoken does not line up with what you typed, so which words got out
+        cannot be shown. What you typed:
+      </p>
+      <p className="measure mt-1 text-xl leading-relaxed text-dim" data-ink="unaligned">
+        {u.typedText}
+      </p>
+    </div>
+  );
+}
+
 function Said({ u, ink }: { u: Utterance; ink: { spoken: string; unspoken: string } | null }) {
   const word = RECEIPT[u.status];
 
@@ -142,19 +197,13 @@ function Said({ u, ink }: { u: Utterance; ink: { spoken: string; unspoken: strin
   // their side. Now the part that made it out stays solid, and the tail —
   // `remainder`, computed once by the reducer and never retroactively edited
   // — renders ghosted under its own caption, so the cut is the thing shown,
-  // not just the thing named.
+  // not just the thing named. CutOff above carries the one case where that
+  // caption would be a lie.
   if (u.status === "interrupted") {
     return (
       <li data-receipt="interrupted" className="border-l-2 border-cut pl-4">
         {u.spokenText && <p className="measure text-xl leading-relaxed text-ink">{u.spokenText}</p>}
-        {u.remainder !== null && (
-          <div className="mt-2">
-            <p className="text-sm text-mute">Cut off — not spoken:</p>
-            <p className="measure mt-1 text-xl leading-relaxed text-mute" data-ink="unspoken">
-              {u.remainder}
-            </p>
-          </div>
-        )}
+        <CutOff u={u} />
         <p className={`mt-2 inline-flex items-center gap-2 text-sm ${RECEIPT_TONE.interrupted.text}`}>
           <Icon status={u.status} colour={RECEIPT_TONE.interrupted.hex} />
           {word}

@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { Timeline, type HeardLine } from "./Timeline";
-import type { Utterance } from "@/lib/ledger";
+import { remainderOf, type Utterance } from "@/lib/ledger";
 
 const u = (over: Partial<Utterance>): Utterance => ({
   id: "u1",
@@ -163,5 +163,72 @@ describe("Timeline — what was actually said", () => {
     const row = screen.getByRole("listitem");
     expect(within(row).getByText("I would", { exact: false })).toBeDefined();
     expect(row.querySelector("[data-ink='unspoken']")?.textContent).toContain("like to reschedule");
+  });
+});
+
+// I1. `remainderOf` returns the WHOLE typed line when the spoken text is not a
+// clean prefix — the right fallback for the composer, a false statement as a
+// caption. These lock the two halves of that distinction.
+describe("Timeline — an interruption must not misreport what was spoken", () => {
+  it("does not print 'not spoken' over words the provider's record says were spoken", () => {
+    // Measured shape of the failure: TTS says "a appointment" where the user
+    // typed "an appointment". The prefix match breaks at word three, so
+    // remainderOf falls back to the whole line — including six words that
+    // demonstrably DID go out.
+    const typedText = "I'd like an appointment for next Tuesday";
+    const spokenText = "I'd like a appointment for next";
+    const remainder = remainderOf(typedText, spokenText);
+    expect(remainder).toBe(typedText); // the fallback, not a tail
+
+    render(
+      <Timeline
+        heard={[]}
+        utterances={[u({ status: "interrupted", typedText, spokenText, remainder })]}
+        partial=""
+        ink={null}
+      />,
+    );
+    expect(screen.queryByText(/not spoken/i)).toBeNull();
+    expect(screen.getByText(/does not line up/i)).toBeDefined();
+    // The typed line is still shown — the user is told what they wrote, just
+    // not told a falsehood about which of it got out.
+    expect(screen.getByText(typedText)).toBeDefined();
+  });
+
+  it("keeps 'not spoken' for a genuine tail", () => {
+    const typedText = "I'd like an appointment for next Tuesday";
+    const spokenText = "I'd like an appointment";
+    const remainder = remainderOf(typedText, spokenText);
+    expect(remainder).toBe("for next Tuesday");
+
+    render(
+      <Timeline
+        heard={[]}
+        utterances={[u({ status: "interrupted", typedText, spokenText, remainder })]}
+        partial=""
+        ink={null}
+      />,
+    );
+    expect(screen.getByText(/not spoken/i)).toBeDefined();
+    expect(screen.queryByText(/does not line up/i)).toBeNull();
+  });
+
+  it("keeps 'not spoken' when nothing at all was spoken", () => {
+    // remainderOf also returns the whole line when the record holds no words,
+    // and there the label is simply true: none of it got out.
+    const typedText = "Please hold on.";
+    const remainder = remainderOf(typedText, "");
+    expect(remainder).toBe(typedText);
+
+    render(
+      <Timeline
+        heard={[]}
+        utterances={[u({ status: "interrupted", typedText, spokenText: "", remainder })]}
+        partial=""
+        ink={null}
+      />,
+    );
+    expect(screen.getByText(/not spoken/i)).toBeDefined();
+    expect(screen.queryByText(/does not line up/i)).toBeNull();
   });
 });

@@ -289,3 +289,52 @@ describe("Composer — continuing a line that was cut off", () => {
     expect(screen.queryByText(/cut off/i)).toBeNull();
   });
 });
+
+// I3. The remainder is offered ONCE. Before this, the fill effect bailed on a
+// non-empty box without consuming the offer, so it stayed outstanding forever
+// and landed in the box later, unannounced, next to a habitual Enter.
+describe("Composer — a remainder is offered once, not held open", () => {
+  it("consumes the offer when the box is busy rather than keeping it pending", () => {
+    const onChange = vi.fn();
+    const onContinuationUsed = vi.fn();
+    render(
+      <Composer
+        {...props}
+        value="something else I was part way through"
+        continuation="for next Tuesday"
+        onChange={onChange}
+        onContinuationUsed={onContinuationUsed}
+      />,
+    );
+    // Nothing is written over what the user was typing...
+    expect((box() as HTMLTextAreaElement).value).toBe("something else I was part way through");
+    expect(onChange).not.toHaveBeenCalled();
+    // ...and the offer is spent, so it cannot come back later.
+    expect(onContinuationUsed).toHaveBeenCalled();
+  });
+
+  it("does not fill the box with a stale tail after an unrelated line is sent", () => {
+    // The real sequence: cut off mid-call while already typing something else,
+    // finish that line, press Enter. `value` goes to "" and the fill effect
+    // re-runs. Enter-to-send is the whole input model here, so a second Enter
+    // out of habit would have spoken a fragment of an old sentence on a live
+    // line.
+    function Parent() {
+      const [value, setValue] = useState("something else I was part way through");
+      const [used, setUsed] = useState(false);
+      return (
+        <Composer
+          value={value}
+          onChange={setValue}
+          onSend={() => {}}
+          disabled={false}
+          continuation={used ? null : "for next Tuesday"}
+          onContinuationUsed={() => setUsed(true)}
+        />
+      );
+    }
+    render(<Parent />);
+    fireEvent.keyDown(box(), { key: "Enter" });
+    expect((box() as HTMLTextAreaElement).value).toBe("");
+  });
+});

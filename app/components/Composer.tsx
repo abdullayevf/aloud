@@ -70,7 +70,19 @@ export function Composer({
     if (filledWith === continuation) return;
     // Only into an empty box. Text appearing over something half-typed is the
     // same failure as a correction the user cannot see before it is spoken.
-    if (value.trim() !== "") return;
+    //
+    // But bailing is not enough: the offer has to be CONSUMED on the way out,
+    // or it stays outstanding forever. Without this, a user who is cut off
+    // while mid-way through typing something else finishes that line, presses
+    // Enter, and `value` becomes "" — the effect re-runs, the box silently
+    // fills with the stale tail, and the habitual second Enter sends a
+    // fragment of an old sentence down a live line in their name. The
+    // remainder is still visible on the interrupted row in the timeline, so
+    // declining to re-offer it loses nothing they cannot see.
+    if (value.trim() !== "") {
+      onContinuationUsed();
+      return;
+    }
     // React 19 batches every update below into one parent re-render, so by
     // the time this component next renders, the page has ALREADY cleared
     // `continuation` back to null (it was consumed in the same tick it was
