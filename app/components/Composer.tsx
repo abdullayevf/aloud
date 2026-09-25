@@ -49,7 +49,15 @@ export function Composer({
   // The last continuation actually written into the box. A remainder is
   // offered once: if the user clears the box, or a second interruption arrives
   // while the first tail is still sitting there unsent, nothing is overwritten.
-  const filled = useRef<string | null>(null);
+  //
+  // State, not a ref: this is read during render (in `continuationNotice`
+  // below), and reading `ref.current` during render is exactly what refs are
+  // documented not to support — React makes no promise the read sees the
+  // latest mutation. Because the effect below sets this in the same pass as
+  // it calls onChange()/onContinuationUsed(), React 19's automatic batching
+  // still lands all three updates in one re-render, so it carries the same
+  // timing guarantee a ref would have, without reading one during render.
+  const [filledWith, setFilledWith] = useState<string | null>(null);
 
   useEffect(() => {
     if (caret.current === null) return;
@@ -59,19 +67,44 @@ export function Composer({
 
   useEffect(() => {
     if (!continuation) return;
-    if (filled.current === continuation) return;
+    if (filledWith === continuation) return;
     // Only into an empty box. Text appearing over something half-typed is the
     // same failure as a correction the user cannot see before it is spoken.
     if (value.trim() !== "") return;
-    filled.current = continuation;
+    // React 19 batches every update below into one parent re-render, so by
+    // the time this component next renders, the page has ALREADY cleared
+    // `continuation` back to null (it was consumed in the same tick it was
+    // offered). A notice keyed off the `continuation` prop is therefore
+    // false at every render a user ever sees — the box fills silently with
+    // text they did not type. `filledWith` is what survives that: it is
+    // scheduled together with onChange() and onContinuationUsed() below, in
+    // the same batch, so the render where `value` first matches is also the
+    // render where `filledWith` already matches it.
+    //
+    // This block is a reset driven by an external prop transition (a new
+    // continuation arriving) rather than state synchronizing with itself, so
+    // this repo accepts it in an effect body over hiding the reset elsewhere.
+    // `notice` is cleared here too, so a stale autocorrect message from
+    // before the interruption cannot linger next to a fill the user never
+    // asked for.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setFilledWith(continuation);
     onChange(continuation);
+    setNotice(null);
     onContinuationUsed();
-  }, [continuation, value, onChange, onContinuationUsed]);
+  }, [continuation, filledWith, value, onChange, onContinuationUsed]);
 
-  // Whether the box currently holds exactly the offered tail, regardless of
-  // whether this render is the one that put it there — see the effect above
-  // and the render comment below.
-  const continuationNotice = Boolean(continuation) && value === continuation;
+  // Whether to show "you were cut off". Two ways in, deliberately ORed:
+  //   - `filledWith === value`: this component did the filling itself.
+  //     Survives the parent nulling `continuation` out in the very same
+  //     batched render — see the timing comment in the effect above — which
+  //     is the path a real call takes on every interruption.
+  //   - `continuation === value`: the box already holds exactly the offered
+  //     text on arrival, whichever render put it there. Needed for a parent
+  //     that hands down matching `value`/`continuation` props directly,
+  //     without ever routing through this component's own `onChange`.
+  const continuationNotice =
+    (filledWith !== null && filledWith === value) || (continuation !== null && continuation === value);
 
   // Controlled from the page: when a line is cut off by the hearing party
   // talking over it, the page writes the unspoken remainder back in here so
@@ -156,22 +189,18 @@ export function Composer({
         aria-live="polite"
         className="flex min-h-6 flex-wrap items-baseline gap-x-2 text-sm text-dim"
       >
-        {/* Matched on the visible value, not on whether *this* render performed
-          * the fill: a box that already holds exactly the offered tail still
-          * needs the explanation, however it got there. The fill itself is
-          * still one-shot — see `filled` above — this is only about what gets
-          * displayed once it has. */}
+        {/* Keyed off `filledWith`, not `continuation` — see the effect's
+          * timing comment. It stops matching, and the notice disappears, the
+          * moment the user edits or sends: exactly when it should. */}
         {continuationNotice ? (
           <span>
             You were cut off. The rest of your line is here — press Enter to finish it.
           </span>
         ) : null}
-        {/* Suppressed while the continuation notice occupies this same strip:
-          * a leftover autocorrect message from before the interruption would
-          * otherwise sit beside an explanation about unrelated text, which is
-          * as confusing as showing neither. Nothing needs to setState to make
-          * that happen — the two notices share a slot by construction. */}
-        {!continuationNotice && notice && (
+        {/* The fill effect clears `notice` for real (see there) when a
+          * continuation arrives, so a stale autocorrect message cannot
+          * resurface once the continuation notice above stops showing. */}
+        {notice && (
           <>
             <span>
               Changed <span className="line-through">{notice.from}</span> to{" "}

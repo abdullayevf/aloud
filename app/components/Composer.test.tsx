@@ -211,4 +211,28 @@ describe("Composer — continuing a line that was cut off", () => {
     );
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  // Regression: the page consumes a continuation in the same tick it offers
+  // it — onChange(remainder) and onContinuationUsed() both fire inside the
+  // fill effect, and React 19 batches them into one parent re-render. So the
+  // very first render where `value` actually equals the remainder is ALSO
+  // the render where the page has already nulled `continuation` back out.
+  // A notice keyed off the `continuation` prop is false at every render a
+  // real user ever sees. This drives that exact ordering — value arriving
+  // filled and continuation arriving null in the SAME rerender — rather than
+  // the earlier tests' hand-fed matching props, which never exercised it.
+  it("still shows the notice once the page has consumed the continuation, same tick", () => {
+    const { rerender, onChange } = setup({ continuation: "for next Tuesday" });
+    rerender(
+      <Composer
+        value="for next Tuesday"
+        onChange={onChange}
+        onSend={vi.fn()}
+        disabled={false}
+        continuation={null}
+        onContinuationUsed={vi.fn()}
+      />,
+    );
+    expect(screen.getByText(/cut off/i)).toBeDefined();
+  });
 });
