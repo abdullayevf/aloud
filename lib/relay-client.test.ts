@@ -33,7 +33,7 @@ function client() {
     onTurn: vi.fn(),
     onSpokenWord: vi.fn(),
   };
-  const audio = { enqueue: vi.fn(), flush: vi.fn(), close: vi.fn() };
+  const audio = { enqueue: vi.fn(), flush: vi.fn(), close: vi.fn(), beginReply: vi.fn() };
   const c = new RelayClient(
     { token: "tok", agentId: "agent-1" },
     handlers,
@@ -190,7 +190,7 @@ function recoveryHandlers() {
 }
 
 function fakePlayer() {
-  return { enqueue: vi.fn(), flush: vi.fn(), close: vi.fn() } as never;
+  return { enqueue: vi.fn(), flush: vi.fn(), close: vi.fn(), beginReply: vi.fn() } as never;
 }
 
 /**
@@ -434,6 +434,14 @@ describe("RelayClient turn events", () => {
     FakeSocket.last.emit({ type: "reply.done", status: "completed" });
 
     expect(turns).toEqual(["ready", "reply-start", "they-start", "they-stop", "reply-end"]);
+  });
+
+  it("opens a new playback timeline on reply.started, not on reply.done", () => {
+    const { c, audio } = client();
+    void c.connect();
+    FakeSocket.last.onopen?.();
+    FakeSocket.last.emit({ type: "reply.started" });
+    expect(audio.beginReply).toHaveBeenCalledTimes(1);
   });
 
   it("reports the close so a dropped call cannot keep showing a live turn", () => {

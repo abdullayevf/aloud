@@ -79,6 +79,11 @@ export class RelayClient {
         this.handlers.onTurn("they-stop");
         break;
       case "reply.started":
+        // Marks the next enqueue() as a new reply's origin. The API takes a
+        // reply turn after EVERY hearing-party turn (~2.4s of silence,
+        // measured gate G2), so this fires on silent turns too — harmless,
+        // since those carry no word deltas to ink against the wrong clock.
+        this.player.beginReply();
         this.handlers.onTurn("reply-start");
         break;
       case "transcript.user.delta":

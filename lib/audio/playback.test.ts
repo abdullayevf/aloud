@@ -141,4 +141,32 @@ describe("ReplyPlayer playback clock", () => {
     ctx.currentTime = 5 + MIN_LEAD_SECONDS + 0.25;
     expect(player.elapsedMs()).toBeCloseTo(250, 3);
   });
+
+  it("opens a fresh clock for the next reply via beginReply(), with no flush between them", () => {
+    // Two replies back to back, no interjection from the hearing party: the
+    // real bug this covers. Without beginReply(), reply B's first enqueue()
+    // would see replyStart already set from reply A and keep A's origin,
+    // while B's start_ms deltas restart at 0 -- every reply after the first
+    // in an uninterrupted run would ink against the wrong clock.
+    const { ctx } = fakeContext();
+    const player = new ReplyPlayer(ctx);
+    player.enqueue(chunk(24_000)); // reply A's audio
+    ctx.currentTime = 10;
+    player.beginReply(); // relay-client's cue: reply.started for reply B
+    player.enqueue(chunk(24_000)); // reply B's first frame
+    ctx.currentTime = 10 + MIN_LEAD_SECONDS + 0.3;
+    expect(player.elapsedMs()).toBeCloseTo(300, 3);
+  });
+
+  it("does not stop or unschedule audio already queued", () => {
+    // reply.started fires well before reply B's audio arrives, while reply
+    // A's audio is typically still scheduled into the future. beginReply()
+    // must not touch it -- only flush() (barge-in) may stop playing audio.
+    const { ctx, stopped } = fakeContext();
+    const player = new ReplyPlayer(ctx);
+    player.enqueue(chunk(24_000));
+    player.enqueue(chunk(24_000));
+    player.beginReply();
+    expect(stopped).toHaveLength(0);
+  });
 });

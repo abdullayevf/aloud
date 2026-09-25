@@ -23,6 +23,12 @@ export class ReplyPlayer {
   /** When this reply's first frame is scheduled to be heard, on the context
    * clock. Null between replies. */
   private replyStart: number | null = null;
+  /** Set by beginReply(): the NEXT enqueue() takes its freshly computed
+   * cursor as the new reply's origin, rather than nulling replyStart
+   * directly. Audio already scheduled from the previous reply is untouched
+   * and keeps playing against its own (still correct) origin right up until
+   * this flag causes that origin to be replaced. */
+  private pendingReplyStart = false;
   private scheduled = new Set<AudioBufferSourceNode>();
 
   constructor(private ctx: AudioContext) {}
@@ -49,7 +55,15 @@ export class ReplyPlayer {
     // .delta's start_ms values are offsets into this same audio, so the two
     // share an origin and the ~296ms of leading silence needs no correction:
     // nothing inks until the voice actually starts, which is correct.
-    if (this.replyStart === null) this.replyStart = this.cursor;
+    //
+    // replyStart === null covers this player's very first reply, before
+    // relay-client has ever called beginReply(). pendingReplyStart covers
+    // every reply after that — reply.started marks the NEXT enqueue as a new
+    // origin without touching whatever the previous reply already scheduled.
+    if (this.pendingReplyStart || this.replyStart === null) {
+      this.replyStart = this.cursor;
+      this.pendingReplyStart = false;
+    }
     source.start(this.cursor);
     this.cursor += buffer.duration;
 
@@ -67,6 +81,22 @@ export class ReplyPlayer {
   elapsedMs(): number | null {
     if (this.replyStart === null) return null;
     return Math.max(0, (this.ctx.currentTime - this.replyStart) * 1000);
+  }
+
+  /**
+   * Marks the next enqueue() as the start of a new reply's timeline.
+   *
+   * Call this on reply.started, not reply.done: reply.done only means the
+   * server finished SENDING, and the previous reply's audio is typically
+   * still scheduled well into the future. Flushing there would cut audio
+   * that is still legitimately playing — on a relay, the user's own
+   * sentence, mid-word. beginReply() never stops or unschedules anything; it
+   * only decides where the NEXT reply's origin will be taken from, so
+   * whatever the previous reply already queued keeps playing against its own
+   * (still correct) origin.
+   */
+  beginReply(): void {
+    this.pendingReplyStart = true;
   }
 
   /** Safari does not implement outputLatency, so the floor carries it there. */
